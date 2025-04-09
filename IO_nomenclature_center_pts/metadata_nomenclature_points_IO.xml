@@ -1,0 +1,896 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <idinfo>
+    <citation>
+      <citeinfo>
+        <origin>International Astronomical Union (IAU) and United States Geologic Survey (USGS)</origin>
+        <pubdate>20121002</pubdate>
+        <title>Planetary Nomenclature of Io</title>
+        <geoform>Vector Data</geoform>
+        <pubinfo>
+          <pubplace>Flagstaff, AZ</pubplace>
+          <publish>United States Geological Survey (USGS)</publish>
+        </pubinfo>
+        <othercit>For current list of reference please see: http://planetarynames.wr.usgs.gov/site/References</othercit>
+        <onlink>http://planetarynames.wr.usgs.gov/</onlink>
+      </citeinfo>
+    </citation>
+    <descript>
+      <abstract>Point file of planetary nomenclature features and attributes</abstract>
+      <purpose>Planetary nomenclature, like terrestrial nomenclature, is used to uniquely identify a feature on the surface of a planet or satellite so that the feature can be easily located, described, and discussed. This file is generate from the Gazetteer of Planetary Nomenclature and contains detailed information about all names of topographic and albedo features on planets and satellites (and some planetary ring and ring-gap systems) that the International Astronomical Union (IAU) has named and approved from its founding in 1919 through the present time.  </purpose>
+    </descript>
+    <timeperd>
+      <timeinfo>
+        <rngdates>
+          <begdate>1919</begdate>
+          <enddate>2012</enddate>
+        </rngdates>
+      </timeinfo>
+      <current>publication date</current>
+    </timeperd>
+    <status>
+      <progress>In work</progress>
+      <update>Weekly</update>
+    </status>
+    <spdom>
+      <bounding>
+        <westbc>-180.0000</westbc>
+        <eastbc>180.0000</eastbc>
+        <northbc>90.0000</northbc>
+        <southbc>-90.0000</southbc>
+      </bounding>
+    </spdom>
+    <keywords>
+      <theme>
+        <themekt>Astropedia</themekt>
+        <themekey>Nomenclature</themekey>
+        <themekey />
+      </theme>
+      <theme>
+        <themekt>Planetary Geoscience SKOS</themekt>
+        <themekey>Planetary Geology</themekey>
+        <themekey>WFS</themekey>
+        <themekey>Shapefile</themekey>
+        <themekey>KML</themekey>
+        <themekey>Feature Catalog</themekey>
+      </theme>
+      <place>
+        <placekt>Planetary Geoscience SKOS</placekt>
+        <placekey>Io</placekey>
+      </place>
+    </keywords>
+    <accconst>GIS software is required to view these data.</accconst>
+    <useconst>Public domain.</useconst>
+    <ptcontac>
+      <cntinfo>
+        <cntperp>
+          <cntper>Tenielle A Gaither</cntper>
+          <cntorg>U.S. Geological Survey, Southwest Region</cntorg>
+        </cntperp>
+        <cntpos>Geologist</cntpos>
+        <cntaddr>
+          <addrtype>mailing address</addrtype>
+          <address>2255 North Gemini Drive</address>
+          <city>Flagstaff</city>
+          <state>AZ</state>
+          <postal>86001-1637</postal>
+          <country>US</country>
+        </cntaddr>
+        <cntvoice>928-556-7387</cntvoice>
+        <cntfax>928-556-7032</cntfax>
+        <cntemail>tgaither@usgs.gov</cntemail>
+      </cntinfo>
+    </ptcontac>
+    <datacred>International Astronomical Union (IAU) and United States Geologic Survey (USGS)</datacred>
+    <secinfo>
+      <secsys>none</secsys>
+      <secclass>Level 1: Public</secclass>
+      <sechandl>Public data is accessible to all requester categories, including the General Public, with limited to no restrictions.</sechandl>
+    </secinfo>
+    <native>PostGIS database</native>
+    <crossref>
+      <citeinfo>
+        <origin>United States Geologic Survey</origin>
+        <pubdate>1986</pubdate>
+        <title>Open-File Report 84-692 </title>
+        <geoform />
+        <othercit>Masursky, Harold and others</othercit>
+        <onlink>http://planetarynames.wr.usgs.gov/site/Page/History</onlink>
+      </citeinfo>
+    </crossref>
+  </idinfo>
+  <dataqual>
+    <attracc>
+      <attraccr />
+    </attracc>
+    <logic>Although we have attempted to check the accuracy of all data in this volume, we realize that some errors will remain in a work of this size. Readers noting errors or omissions are urged to communicate them to the USGS Astrogeology Science Center IAU Nomenclature representative.</logic>
+    <complete>The database is always in flux and there are known registration issues depending on the planetary body.</complete>
+    <posacc>
+      <horizpa>
+        <horizpar>The horizontal accuracy can vary largely from planetary body to body. Since planetary control networks change regularly as new data is gather there it can be hard to keep pace with the latest control network. This is an ongoing task for the maintainers.</horizpar>
+      </horizpa>
+    </posacc>
+    <lineage>
+      <srcinfo>
+        <srccite>
+          <citeinfo>
+            <origin />
+            <pubdate />
+            <title />
+            <geoform>vector digital data</geoform>
+          </citeinfo>
+        </srccite>
+        <srcscale>5000000</srcscale>
+        <typesrc>online</typesrc>
+        <srctime>
+          <timeinfo>
+            <sngdate>
+              <caldate />
+            </sngdate>
+          </timeinfo>
+          <srccurr>publication date</srccurr>
+        </srctime>
+        <srccitea>Planetary Nomenclature</srccitea>
+        <srccontr />
+      </srcinfo>
+      <procstep>
+        <procdesc>When the first images of the surface of a planet or satellite are obtained, themes for naming features are chosen and names of a few important features are proposed, usually by members of the appropriate IAU task group. Later, as higher resolution images and maps become available, names for additional features may be requested by investigators mapping or describing specific surfaces or geological formations. Anyone may suggest that a specific name be considered by a task group, but there is no guarantee that the name will be accepted. Names successfully reviewed by a task group are submitted to the Working Group for Planetary System Nomenclature (WGPSN). Upon successful review by the members of the WGPSN, names are considered approved and can be used on maps and in publications. Approved names are immediately entered into the official IAU database, the Gazetteer of Planetary Nomenclature, and posted on its web site. Any objections to these names based on significant, substantive problems must be forwarded in writing or email to the IAU Division III President within three months from the time the name was placed on the web site. Approved names are also listed in the transactions of the IAU. </procdesc>
+        <procdate>
+        </procdate>
+      </procstep>
+    </lineage>
+  </dataqual>
+  <spdoinfo>
+    <direct>Vector</direct>
+    <ptvctinf>
+      <sdtsterm>
+        <sdtstype>Point</sdtstype>
+        <ptvctcnt>1690</ptvctcnt>
+      </sdtsterm>
+    </ptvctinf>
+  </spdoinfo>
+  <spref>
+    <horizsys>
+      <geograph>
+        <latres>
+        </latres>
+        <longres>
+        </longres>
+        <geogunit>Decimal degrees</geogunit>
+      </geograph>
+      <geodetic>
+        <horizdn>Io 2000</horizdn>
+        <ellips>Io 2000 IAU IAG</ellips>
+        <semiaxis>1821460.0</semiaxis>
+        <denflat>1.0E-10</denflat>
+      </geodetic>
+    </horizsys>
+  </spref>
+  <eainfo>
+    <detailed>
+      <enttyp>
+        <enttypl>Planetary Nomenclature</enttypl>
+        <enttypd />
+        <enttypds />
+      </enttyp>
+      <attr>
+        <attrlabl>FID</attrlabl>
+        <attrdef>Internal feature number.</attrdef>
+        <attrdefs>ESRI</attrdefs>
+        <attrdomv>
+          <udom>Sequential unique whole numbers that are automatically generated.</udom>
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>Shape</attrlabl>
+        <attrdef>Feature geometry.</attrdef>
+        <attrdefs>ESRI</attrdefs>
+        <attrdomv>
+          <udom>Coordinates defining the features.</udom>
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>FEATURE</attrlabl>
+        <attrdef>As spelled by honoree or by reference shown in Sources of Planetary Names; brackets indicate that the name has been dropped or was never officially approved. This field shows the names with the diacritical marks. </attrdef>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN) http://planetarynames.wr.usgs.gov/site/References</attrdefs>
+      </attr>
+      <attr>
+        <attrlabl>CLEAN_FEAT</attrlabl>
+        <attrdef>This field shows the feature name without the diacritical marks which can cause display issues in some programs. The correct spelling of a feature name includes diacritical marks not shown in this field. </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN) http://planetarynames.wr.usgs.gov/site/References</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>APPROVALDT</attrlabl>
+        <attrdef>Date when name was adopted. Starting in mid-September 2006, complete dates are recorded (YYYY-MM-DD). Before mid-September 2006, only the approval year was recorded. </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>ORIGIN</attrlabl>
+        <attrdef>Short explanation of name. </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>DIAMETER</attrlabl>
+        <attrdef>Approximate diameter or longest dimension of feature in kilometers. </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>CENTER_LON</attrlabl>
+        <attrdef>Longitude of center of feature. Degrees 0 to 360 in an east or west system. On the Moon, positive longitude values indicate east longitudes, and negative values indicate west longitudes. </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>CENTER_LAT</attrlabl>
+        <attrdef>Latitude of center of feature. Positive numbers indicate that the feature is located in the northern hemisphere, and negative numbers indicate that the feature is located in the southern hemisphere. </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>TYPE</attrlabl>
+        <attrdef>Latin or Greek descriptor term</attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attalias>TYPE</attalias>
+        <attrtype>String</attrtype>
+        <attwidth>255</attwidth>
+        <attrdomv>
+          <edom>
+            <edomv>Albedo Feature (AL)</edomv>
+            <edomvd>Geographic area distinguished by amount of reflected light</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Arcus, arcus (AR)</edomv>
+            <edomvd>Arc-shaped feature</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Catena, catenae (CA)</edomv>
+            <edomvd>Chain of craters</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Cavus, cavi (CB)</edomv>
+            <edomvd>Hollows, irregular steep-sided depressions usually in arrays or clusters</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Chaos, chaoses (CH)</edomv>
+            <edomvd>Distinctive area of broken terrain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Chasma, chasmata (CM)</edomv>
+            <edomvd>A deep, elongated, steep-sided depression</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Collis, colles (CO)</edomv>
+            <edomvd>Small hills or knobs</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Corona, coronae (CR)</edomv>
+            <edomvd>Ovoid-shaped feature</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Crater, craters (AA)</edomv>
+            <edomvd>A circular depression</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Dorsum, dorsa (DO)</edomv>
+            <edomvd>Ridge</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Eruptive center (ER)</edomv>
+            <edomvd>Active volcanic centers on Io</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Facula, faculae (FA)</edomv>
+            <edomvd>Bright spot</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Farrum, farra (FR)</edomv>
+            <edomvd>Pancake-like structure, or a row of such structures</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Flexus, flexus (FE)</edomv>
+            <edomvd>A very low curvilinear ridge with a scalloped pattern</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Fluctus, fluctus (FL)</edomv>
+            <edomvd>Flow terrain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Flumen, flumina (FM)</edomv>
+            <edomvd>Channel on Titan that might carry liquid</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Fossa, fossae (FO)</edomv>
+            <edomvd>Long, narrow depression</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Insula, insulae (IN)</edomv>
+            <edomvd>Island (islands), an isolated land area (or group of such areas) surrounded by, or nearly surrounded by, a liquid area (sea or lake).</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Labes, labes (LA)</edomv>
+            <edomvd>Landslide</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Labyrinthus, labyrinthi (LB)</edomv>
+            <edomvd>Complex of intersecting valleys or ridges.</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Lacus, lacus (LC)</edomv>
+            <edomvd>"Lake" or small plain; on Titan, a "lake" or small, dark plain with discrete, sharp boundaries</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Landing site name (LF)</edomv>
+            <edomvd>Lunar features at or near Apollo landing sites</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Large ringed feature (LG)</edomv>
+            <edomvd>Cryptic ringed features</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Linea, lineae (LI)</edomv>
+            <edomvd>A dark or bright elongate marking, may be curved or straight</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Lingula, lingulae (LN)</edomv>
+            <edomvd>Extension of plateau having rounded lobate or tongue-like boundaries</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Macula, maculae (MA)</edomv>
+            <edomvd>Dark spot, may be irregular</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Mare, maria (ME)</edomv>
+            <edomvd>"Sea"; large circular plain; on Titan, large expanses of dark materials thought to be liquid hydrocarbons</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Mensa, mensae (MN)</edomv>
+            <edomvd>A flat-topped prominence with cliff-like edges</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Mons, montes (MO)</edomv>
+            <edomvd>Mountain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Oceanus, oceani (OC)</edomv>
+            <edomvd>A very large dark area on the moon</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Palus, paludes (PA)</edomv>
+            <edomvd>"Swamp"; small plain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Patera, paterae (PE)</edomv>
+            <edomvd>An irregular crater, or a complex one with scalloped edges</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Planitia, planitiae (PL)</edomv>
+            <edomvd>Low plain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Planum, plana (PM)</edomv>
+            <edomvd>Plateau or high plain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Plume, plumes (PU)</edomv>
+            <edomvd>Cryo-volcanic features on Triton</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Promontorium, promontoria (PR)</edomv>
+            <edomvd>"Cape"; headland promontoria</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Regio, regiones (RE)</edomv>
+            <edomvd>A large area marked by reflectivity or color distinctions from adjacent areas, or a broad geographic region</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Rima, rimae (RI)</edomv>
+            <edomvd>Fissure</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Rupes, rupes (RU)</edomv>
+            <edomvd>Scarp</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Satellite Feature (SF)</edomv>
+            <edomvd>A feature that shares the name of an associated feature. For example, on the Moon the craters referred to as "Lettered Craters" are classified in the gazetteer as "Satellite Features."</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Scopulus, scopuli (SC)</edomv>
+            <edomvd>Lobate or irregular scarp</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Serpens, serpentes (SE)</edomv>
+            <edomvd>Sinuous feature with segments of positive and negative relief along its length</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Sinus, sinus (SI)</edomv>
+            <edomvd>"Bay"; small plain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Sulcus, sulci (SU)</edomv>
+            <edomvd>Subparallel furrows and ridges</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Terra, terrae (TA)</edomv>
+            <edomvd>Extensive land mass</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Tessera, tesserae (TE)</edomv>
+            <edomvd>Tile-like, polygonal terrain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Tholus, tholi (TH)</edomv>
+            <edomvd>Small domical mountain or hill</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Unda, undae (UN)</edomv>
+            <edomvd>Dunes</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Vallis, valles (VA)</edomv>
+            <edomvd>Valley</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Vastitas, vastitates (VS)</edomv>
+            <edomvd>Extensive plain</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>Virga, virgae (VI)</edomv>
+            <edomvd>A streak or stripe of color</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/DescriptorTerms</edomvds>
+          </edom>
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>CODE</attrlabl>
+        <attrdef>Country or ethnic group that is origin of name </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN) http://planetarynames.wr.usgs.gov/site/Abbreviations</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>APPROVAL</attrlabl>
+        <attrdef>Number indicates IAU level of approval</attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attalias>APPROVAL</attalias>
+        <attrtype>String</attrtype>
+        <attwidth>255</attwidth>
+        <attrdomv>
+          <edom>
+            <edomv>1</edomv>
+            <edomvd>Proposed (not currently used) </edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/Page/Specifics</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>2</edomv>
+            <edomvd>Task Group approval (not currently used) </edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/Page/Specifics</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>3</edomv>
+            <edomvd>WGPSN approval (not currently used)</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/Page/Specifics</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>4</edomv>
+            <edomvd>Executive Committee approval (not currently used)</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/Page/Specifics</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>5</edomv>
+            <edomvd>Adopted by IAU</edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/Page/Specifics</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>6</edomv>
+            <edomvd>Dropped, no longer in use </edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/Page/Specifics</edomvds>
+          </edom>
+        </attrdomv>
+        <attrdomv>
+          <edom>
+            <edomv>7</edomv>
+            <edomvd>Never approved by the IAU </edomvd>
+            <edomvds>https://planetarynames.wr.usgs.gov/Page/Specifics</edomvds>
+          </edom>
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>WEST_LON</attrlabl>
+        <attrdef>Approximate westernmost longitude extent. Using a positive East longitude system.</attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>EAST_LON</attrlabl>
+        <attrdef>Approximate easternmost longtiude extent. Using a positive East longitude system. </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>SOUTH_LAT</attrlabl>
+        <attrdef>Approximate southernmost planetocentric latitude extent</attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>NORTH_LAT</attrlabl>
+        <attrdef>Approximate northernmost planetocentric latitude extent</attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>ETHNICITY</attrlabl>
+        <attrdef>Country or ethnic group that is origin of name </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN) http://planetarynames.wr.usgs.gov/site/Abbreviations</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>CONTINENT</attrlabl>
+        <attrdef>Continent or large geographic division that is origin of name </attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>QUAD_NAME</attrlabl>
+        <attrdef>The name of planetary quadrant that the features center point lies within</attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>QUAD_CODE</attrlabl>
+        <attrdef>The specific planetary quadrant that the features center point lies within</attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+      <attr>
+        <attrlabl>LINK</attrlabl>
+        <attrdef>URL directly to feature on the planetary nomenclature website</attrdef>
+        <attrdefs>International Astronomical Union (IAU) Working Group for Planetary System Nomenclature (WGPSN)</attrdefs>
+        <attrdomv>
+          <udom />
+        </attrdomv>
+      </attr>
+    </detailed>
+  </eainfo>
+  <distinfo>
+    <distrib>
+      <cntinfo>
+        <cntperp>
+          <cntper>Tenielle A Gaither</cntper>
+          <cntorg>U.S. Geological Survey, Southwest Region</cntorg>
+        </cntperp>
+        <cntpos>Geologist</cntpos>
+        <cntaddr>
+          <addrtype>mailing address</addrtype>
+          <address>2255 North Gemini Drive</address>
+          <city>Flagstaff</city>
+          <state>AZ</state>
+          <postal>86001-1637</postal>
+          <country>US</country>
+        </cntaddr>
+        <cntvoice>928-556-7387</cntvoice>
+        <cntfax>928-556-7032</cntfax>
+        <cntemail>tgaither@usgs.gov</cntemail>
+      </cntinfo>
+    </distrib>
+    <resdesc>Downloadable Data</resdesc>
+    <distliab>none</distliab>
+    <stdorder>
+      <digform>
+        <digtinfo>
+          <formname>Digital Data</formname>
+        </digtinfo>
+        <digtopt>
+          <onlinopt>
+            <computer>
+              <networka>
+                <networkr>https://astrocloud.wr.usgs.gov/dataset/data/nomenclature/IO/WFS?request=getCapabilities</networkr>
+              </networka>
+            </computer>
+          </onlinopt>
+        </digtopt>
+      </digform>
+      <fees>none</fees>
+    </stdorder>
+  </distinfo>
+  <planetary>
+    <planetsrc>Nomenclature</planetsrc>
+    <body>
+      <system>Jupiter</system>
+      <target>Io</target>
+      <quadsys>
+      </quadsys>
+      <quadname>
+      </quadname>
+      <rada>1821460</rada>
+      <radc>1821460</radc>
+      <lattype>Planetographic</lattype>
+      <londom>0 to 360</londom>
+      <londir>Positive West</londir>
+    </body>
+    <footprint>
+      <maxlat>90</maxlat>
+      <minlat>-90</minlat>
+      <maxlon>360</maxlon>
+      <minlon>0</minlon>
+    </footprint>
+    <feature>
+      <featkey>
+      </featkey>
+    </feature>
+    <litho>
+      <lithokey>
+      </lithokey>
+    </litho>
+    <tempo>
+      <tempokey>
+      </tempokey>
+    </tempo>
+    <mission>
+      <missikey>
+      </missikey>
+      <missikey>
+      </missikey>
+      <missikey>
+      </missikey>
+    </mission>
+    <instr>
+      <instrkey>
+      </instrkey>
+    </instr>
+    <pdsstat>
+    </pdsstat>
+    <accscope>
+    </accscope>
+    <pdsarch>
+    </pdsarch>
+    <rover>
+      <sol>
+      </sol>
+      <featname>
+      </featname>
+      <feattarg>
+      </feattarg>
+    </rover>
+    <sample>
+      <strdepth>
+      </strdepth>
+      <endepth>
+      </endepth>
+    </sample>
+    <ctrlnet>
+    </ctrlnet>
+    <mapscale>
+    </mapscale>
+    <bittype>
+    </bittype>
+    <bands>
+    </bands>
+    <wkt>
+    </wkt>
+  </planetary>
+  <metainfo>
+    <metd>20170901</metd>
+    <metc>
+      <cntinfo>
+        <cntorgp>
+          <cntorg>USGS Astrogeology Science Center</cntorg>
+          <cntper>Marc Hunter</cntper>
+        </cntorgp>
+        <cntpos>IT Specialist (Applications Software)</cntpos>
+        <cntaddr>
+          <addrtype>mailing and physical</addrtype>
+          <address>2255 N. Gemini Dr</address>
+          <city>Flagstaff</city>
+          <state>AZ</state>
+          <postal>86001</postal>
+        </cntaddr>
+        <cntvoice>(928)556-7220</cntvoice>
+        <cntemail>mahunter@usgs.gov</cntemail>
+      </cntinfo>
+    </metc>
+    <metstdn>FGDC Content Standard for Digital Geospatial Metadata</metstdn>
+    <metstdv>FGDC-STD-001-1998</metstdv>
+    <mettc>local time</mettc>
+    <metextns>
+      <metprof>USGS Astrogeology Planetary Geoscience Metadata Standard</metprof>
+    </metextns>
+  </metainfo>
+</metadata>
