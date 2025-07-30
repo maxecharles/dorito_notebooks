@@ -191,10 +191,10 @@ print("Model initialisation...")
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 cal_exposures = [
-    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in cal_files
+    amigo.model_fits.SplineVisFit(file, use_cov=False) for file in cal_files[0:1]
 ]
 sci_exposures = [
-    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files
+    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files[0:1]
 ]
 exposures = cal_exposures + sci_exposures
 # exposures = [
@@ -221,25 +221,91 @@ model = amigo.core_models.AmigoModel(
 #     exp.print_summary()
 #     amigo.plotting.summarise_fit(model, exp, residuals=False)
 
+
+# %%
+from dLux import utils as dlu
+from scipy.interpolate import griddata
+import numpy as onp
+import jax.numpy as np
+
+
+def interpolate_nans_2d_jnp(array, method="linear"):
+
+    array = onp.array(array)
+    x, y = onp.indices(array.shape)
+    valid_mask = ~onp.isnan(array)
+
+    filled = array.copy()
+    filled[~valid_mask] = griddata(
+        (x[valid_mask], y[valid_mask]),
+        array[valid_mask],
+        (x[~valid_mask], y[~valid_mask]),
+        method=method,
+    )
+
+    return np.array(filled)
+
+
+optics_diameter = 6.603464  # JWST aperture diameter in meters
+otf_coords = dlu.pixel_coords(51, 2 * optics_diameter)
+otf = np.load("files/otf_support.npy")
+
+for exp in exposures:
+    if exp.calibrator:
+        continue
+
+    filt = model.filters[exp.filter]
+    wavel = np.dot(filt[0], filt[1])
+
+    interferogram = np.where(~exp.badpix, exp.slopes[0], np.nan)
+    interferogram = interpolate_nans_2d_jnp(interferogram, method="linear")
+    interferogram = np.where(~np.isnan(interferogram), interferogram, 0.0)
+    # interferogram /= np.nanmax(interferogram)
+
+    mft = dlu.MFT(
+        phasor=interferogram,
+        wavelength=wavel,
+        pixel_scale_in=dlu.arcsec2rad(model.psf_pixel_scale),
+        npixels_out=otf_coords.shape[-1],
+        pixel_scale_out=np.diff(otf_coords[0, 0]).mean(),
+        inverse=True,
+    )
+
+    mft /= np.nanmax(np.abs(mft))
+    log_vis = np.log(mft)
+
+    log_amp = log_vis.real.flatten()[: log_vis.size // 2]
+    log_phase = log_vis.imag.flatten()[: log_vis.size // 2]
+
+    lat_amp, lat_phase = model.vis_model.to_latent(log_amp, log_phase, exp.filter)
+
+    print(f"Filter: {exp.filter}, Wavelength: {1e6*wavel:.3f}um")
+
+    model.params["amplitudes"][exp.get_key("amplitudes")] = lat_amp
+    model.params["phases"][exp.get_key("phases")] = lat_phase
+
 # %%
 print("Training...")
-n_epoch = 1200
+n_epoch = 1600
 
 config = {
-    "positions": sgd(4e-2, 0),
-    "fluxes": sgd(2e-2, 0),
-    "aberrations": sgd(5e-2, 4),
-    "spectra": sgd(3e-2, 10),
-    "phases": sgd(2e0, 50),
-    "amplitudes": sgd(2e0, 50),
+    # # Init'ing from MFT
+    "positions": sgd(4e-2, 0, (50, 0.0)),
+    "fluxes": sgd(1e-2, 0),
+    "aberrations": sgd(5e-0, 4),
+    "spectra": sgd(1.5e-1, 10),
+    "amplitudes": sgd(2e-1, 25),
+    "phases": sgd(2e-1, 25),
 }
 
 pos_keys = []
 spc_keys = []
+flx_keys = []
 for exp in exposures:
     if not exp.calibrator:
         pos_keys.append(exp.map_param("positions"))
         spc_keys.append(exp.map_param("spectra"))
+        flx_keys.append(exp.map_param("fluxes"))
 
 
 def norm_fn(model_params, args):
@@ -259,13 +325,18 @@ def norm_fn(model_params, args):
 
 
 def grad_fn(model, grads, args):
-    # # Nuke the position gradients for the science exposures
-    # if "positions" in config.keys():
-    #     grads = grads.multiply(pos_keys, 0.0)
+    # Nuke the position gradients for the science exposures
+    if "positions" in config.keys():
+        grads = grads.multiply(pos_keys, 5e1)
+        # grads = grads.multiply(pos_keys, 0.0)
+
+    if "fluxes" in config.keys():
+        grads = grads.multiply(flx_keys, 1e-1)
+        # grads = grads.multiply(pos_keys, 0.0)
 
     # Reduce spectra gradients for the science exposures
     if "spectra" in config.keys():
-        grads = grads.multiply(spc_keys, 1e-2)
+        grads = grads.multiply(spc_keys, 2e-3)
     return grads, args
 
 
@@ -290,8 +361,8 @@ result = trainer.train(
     optimisers=config,
     epochs=n_epoch,
     # batches=exposures[0:1],
-    # batches=exposures,
-    batches=amigo.fitting.batch_exposures(exposures, n_batch=len(exposures) // 3),
+    batches=exposures,
+    # batches=amigo.fitting.batch_exposures(exposures, n_batch=len(exposures) // 3),
 )
 
 # %%
@@ -307,8 +378,8 @@ except Exception as e:
 # for exp in exposures:
 for exp in exposures:
     try:
-        print(exp.star)
-        amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
+        r = False if exp.calibrator else True
+        amigo.plotting.summarise_fit(result.model, exp, r)
     except Exception as e:
         print(f"Error during plotting {exp.star}, {exp.key}: {e}")
         pass
