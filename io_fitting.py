@@ -23,10 +23,11 @@ import cmasher as cmr
 
 import sys
 
-# i = int(sys.argv[1])
+# i = sys.argv[1]
+# # i = int(sys.argv[1])
 # print(f"Running script with input {i}")
-# # # ... your logic here ...
-# # i = 5
+# # ... your logic here ...
+# i = 5
 
 
 # matplotlib parameters
@@ -58,19 +59,21 @@ if gethostname() == "glinton":
 else:
     morgana = "/Volumes/morgana1/"
 
-data_path = os.path.join(morgana, "snert/max/data/JWST/PDS70/calslope/")
-uncal_path = os.path.join(morgana, "snert/max/data/JWST/PDS70/uncal/")
+source_name = "IO"
+data_path = os.path.join(morgana, f"snert/max/data/JWST/{source_name}/calslope/")
+uncal_path = os.path.join(morgana, f"snert/max/data/JWST/{source_name}/uncal/")
 amigo_cache = os.path.join(morgana, "snert/max/data/amigo_files/")
 
 cache = os.path.join(amigo_cache, "v_0.0.10/")
-output_path = os.path.join(amigo_cache, "outputs/PDS70/")
+output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
 FILTERS = [
-    "F480M",
+    # "F480M",
     "F430M",
-    "F380M",
+    # "F380M",
 ]
+# FILTERS = [i]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -100,12 +103,12 @@ print(f"Output path: {output_path}")
 files = sorted(
     file_fn(data_path), key=lambda hdu: hdu[0].header.get("EXPMID", float("inf"))
 )
-# nsci = 1; ncal = 4
-rolls = {}
+
 sci_files = []
 cal_files = []
 
 for file in files:
+    filename = file[0].header["FILENAME"].replace("_nis_calslope.fits", "")
 
     # manual bad pixel correction
     file["BADPIX"].data[58, 67] = 1
@@ -124,18 +127,17 @@ for file in files:
     file["BADPIX"].data[:3, :] = 1
     file["BADPIX"].data[-3:, :] = 1
 
-    if file[0].header["TARGPROP"] == "TD-PDS-70":
-        file["BADPIX"].data[36:66, :25] = 1  # BACKGROUND STAR?
-
+    # if file[0].header["TARGPROP"] == "NGC1068":
     if not bool(file[0].header["IS_PSF"]):
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
-        file[0].header["TARGPROP"] = "HD 228337"
+        file[0].header["TARGPROP"] = "HD 2236"
         cal_files.append(file)
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
 
-# dorito.misc.truncate_files(sci_files, i)
+# dorito.misc.truncate_files(cal_files, 5)
+dorito.misc.truncate_files(sci_files, 18)
 
 
 # %%
@@ -189,16 +191,16 @@ print("Model initialisation...")
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 cal_exposures = [
-    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in cal_files
+    amigo.model_fits.SplineVisFit(file, use_cov=False) for file in cal_files[0:1]
 ]
 sci_exposures = [
-    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files
+    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files[0:1]
 ]
 exposures = cal_exposures + sci_exposures
-exposures = [
-    exp.set("cov", fudge_cov(exp.cov, get_depth(exp, threshold=25_000)))
-    for exp in exposures
-]
+# exposures = [
+#     exp.set("cov", fudge_cov(exp.cov, get_depth(exp, threshold=25_000)))
+#     for exp in exposures
+# ]
 # exposures = exposures[0:1]
 
 model = amigo.core_models.AmigoModel(
@@ -219,27 +221,128 @@ model = amigo.core_models.AmigoModel(
 #     exp.print_summary()
 #     amigo.plotting.summarise_fit(model, exp, residuals=False)
 
+
+# %%
+from dLux import utils as dlu
+from scipy.interpolate import griddata
+import numpy as onp
+import jax.numpy as np
+
+
+def interpolate_nans_2d_jnp(array, method="linear"):
+
+    array = onp.array(array)
+    x, y = onp.indices(array.shape)
+    valid_mask = ~onp.isnan(array)
+
+    filled = array.copy()
+    filled[~valid_mask] = griddata(
+        (x[valid_mask], y[valid_mask]),
+        array[valid_mask],
+        (x[~valid_mask], y[~valid_mask]),
+        method=method,
+    )
+
+    return np.array(filled)
+
+
+optics_diameter = 6.603464  # JWST aperture diameter in meters
+otf_coords = dlu.pixel_coords(51, 2 * optics_diameter)
+otf = np.load("files/otf_support.npy")
+
+for exp in exposures:
+    if exp.calibrator:
+        continue
+
+    filt = model.filters[exp.filter]
+    wavel = np.dot(filt[0], filt[1])
+
+    interferogram = np.where(~exp.badpix, exp.slopes[0], np.nan)
+    interferogram = interpolate_nans_2d_jnp(interferogram, method="linear")
+    interferogram = np.where(~np.isnan(interferogram), interferogram, 0.0)
+    # interferogram /= np.nanmax(interferogram)
+
+    mft = dlu.MFT(
+        phasor=interferogram,
+        wavelength=wavel,
+        pixel_scale_in=dlu.arcsec2rad(model.psf_pixel_scale),
+        npixels_out=otf_coords.shape[-1],
+        pixel_scale_out=np.diff(otf_coords[0, 0]).mean(),
+        inverse=True,
+    )
+
+    mft /= np.nanmax(np.abs(mft))
+    log_vis = np.log(mft)
+
+    log_amp = log_vis.real.flatten()[: log_vis.size // 2]
+    log_phase = log_vis.imag.flatten()[: log_vis.size // 2]
+
+    lat_amp, lat_phase = model.vis_model.to_latent(log_amp, log_phase, exp.filter)
+
+    print(f"Filter: {exp.filter}, Wavelength: {1e6*wavel:.3f}um")
+
+    model.params["amplitudes"][exp.get_key("amplitudes")] = lat_amp
+    model.params["phases"][exp.get_key("phases")] = lat_phase
+
 # %%
 print("Training...")
-n_epoch = 600
+n_epoch = 1600
 
 config = {
-    # "positions": sgd(1e-1, 0),
-    # "fluxes": sgd(5e-2, 0),
-    # "aberrations": sgd(1e-1, 4),
-    # "spectra": sgd(2e-1, 10),
-    # "phases": sgd(2e0, 20),
-    # "amplitudes": sgd(2e0, 20),
-    #
-    "positions": sgd(3e-3, 0),
-    "fluxes": sgd(5e-3, 0),
-    "aberrations": sgd(5e-3, 4),
-    "spectra": sgd(1e-2, 10),
-    "phases": sgd(5e-4, 30),
-    "amplitudes": sgd(5e-4, 30),
+    # # Init'ing from MFT
+    "positions": sgd(4e-2, 0, (50, 0.0)),
+    "fluxes": sgd(1e-2, 0),
+    "aberrations": sgd(5e-0, 4),
+    "spectra": sgd(1.5e-1, 10),
+    "amplitudes": sgd(2e-1, 25),
+    "phases": sgd(2e-1, 25),
 }
 
+pos_keys = []
+spc_keys = []
+flx_keys = []
+for exp in exposures:
+    if not exp.calibrator:
+        pos_keys.append(exp.map_param("positions"))
+        spc_keys.append(exp.map_param("spectra"))
+        flx_keys.append(exp.map_param("fluxes"))
+
+
+def norm_fn(model_params, args):
+    params = model_params.params
+    # if "log_distribution" in params.keys():
+    #     for k, log_dist in params["log_distribution"].items():
+    #         distribution = 10**log_dist
+    #         params["log_distribution"][k] = np.log10(distribution / distribution.sum())
+
+    if "spectra" in params.keys():
+        spectra = jtu.map(
+            lambda x: np.clip(x, a_min=-0.8, a_max=0.8), params["spectra"]
+        )
+        params["spectra"] = spectra
+
+    return model_params.set("params", params), args
+
+
+def grad_fn(model, grads, args):
+    # Nuke the position gradients for the science exposures
+    if "positions" in config.keys():
+        grads = grads.multiply(pos_keys, 5e1)
+        # grads = grads.multiply(pos_keys, 0.0)
+
+    if "fluxes" in config.keys():
+        grads = grads.multiply(flx_keys, 1e-1)
+        # grads = grads.multiply(pos_keys, 0.0)
+
+    # Reduce spectra gradients for the science exposures
+    if "spectra" in config.keys():
+        grads = grads.multiply(spc_keys, 2e-3)
+    return grads, args
+
+
 trainer = amigo.fitting.Trainer(
+    grad_fn=grad_fn,
+    norm_fn=norm_fn,
     cache=os.path.join(amigo_cache, "fishers/"),
 )
 
@@ -258,20 +361,28 @@ result = trainer.train(
     optimisers=config,
     epochs=n_epoch,
     # batches=exposures[0:1],
-    # batches=exposures,
-    batches=amigo.fitting.batch_exposures(exposures, n_batch=len(exposures) // 3),
+    batches=exposures,
+    # batches=amigo.fitting.batch_exposures(exposures, n_batch=len(exposures) // 3),
 )
 
 # %%
 losses = np.array([v for v in result.losses.values()]).mean(0)
 
 amigo.plotting.plot_losses(losses, start=int(0.8 * n_epoch), save_path=output_path)
-# amigo.plotting.plot(result.history, save_path=output_path)
+try:
+    amigo.plotting.plot(result.history, save_path=output_path)
+except Exception as e:
+    print(f"Error during plotting: {e}")
+    pass
 
-# # for exp in exposures:
 # for exp in exposures:
-#     print(exp.star)
-#     amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
+for exp in exposures:
+    try:
+        r = False if exp.calibrator else True
+        amigo.plotting.summarise_fit(result.model, exp, r)
+    except Exception as e:
+        print(f"Error during plotting {exp.star}, {exp.key}: {e}")
+        pass
 
 
 # %%
@@ -329,6 +440,9 @@ def fun(params, args):
     proj_params = jtu.map(lambda x, y: np.dot(x, y), proj_mats, params)
     model_params = jtu.map(lambda x, y: x + y, model_params, proj_params)
     model_params = jtu.map(lambda x, y: x.reshape(y), model_params, shapes)
+
+    model_params, _ = norm_fn(model_params, {})
+
     model = model_params.inject(model)
 
     # Return the loss
@@ -364,7 +478,7 @@ for exp in tqdm(exposures):
     except Exception as e:
         print(f"Skipped {exp.key}")
         continue
-    solver = optx.BFGS(rtol=1e-6, atol=1e-6)
+    solver = optx.BFGS(rtol=1e-8, atol=1e-8)
     sol = optx.minimise(fun, solver, initial_params, args, throw=False, max_steps=2048)
     sols_out[exp.key] = sol
 
@@ -412,12 +526,16 @@ for key, values in result.state.items():
 # final_model = model.set("params", params)
 
 # %%
-for filt in ["F380M", "F430M", "F480M"]:
-    for exp in exposures:
-        if exp.filter == filt:
-            exp_type = "Calibrator" if exp.calibrator else "Science"
-            print(exp.filter, exp_type, exp.star, exp.ngroups)
-            amigo.plotting.summarise_fit(final_model, exp, save_path=output_path)
+try:
+    for filt in FILTERS:
+        for exp in exposures:
+            if exp.filter == filt:
+                exp_type = "Calibrator" if exp.calibrator else "Science"
+                print(exp.filter, exp_type, exp.star, exp.ngroups)
+                amigo.plotting.summarise_fit(final_model, exp, save_path=output_path)
+except Exception as e:
+    print(f"Error during plotting: {e}")
+    pass
 
 
 # %%

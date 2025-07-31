@@ -23,10 +23,11 @@ import cmasher as cmr
 
 import sys
 
+i = sys.argv[1]
 # i = int(sys.argv[1])
-# print(f"Running script with input {i}")
-# # # ... your logic here ...
-# # i = 5
+print(f"Running script with input {i}")
+# # ... your logic here ...
+# i = 5
 
 
 # matplotlib parameters
@@ -58,19 +59,21 @@ if gethostname() == "glinton":
 else:
     morgana = "/Volumes/morgana1/"
 
-data_path = os.path.join(morgana, "snert/max/data/JWST/PDS70/calslope/")
-uncal_path = os.path.join(morgana, "snert/max/data/JWST/PDS70/uncal/")
+source_name = "NGC1068"
+data_path = os.path.join(morgana, f"snert/max/data/JWST/{source_name}/calslope/")
+uncal_path = os.path.join(morgana, f"snert/max/data/JWST/{source_name}/uncal/")
 amigo_cache = os.path.join(morgana, "snert/max/data/amigo_files/")
 
 cache = os.path.join(amigo_cache, "v_0.0.10/")
-output_path = os.path.join(amigo_cache, "outputs/PDS70/")
+output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
-FILTERS = [
-    "F480M",
-    "F430M",
-    "F380M",
-]
+# FILTERS = [
+#     "F480M",
+#     "F430M",
+#     "F380M",
+# ]
+FILTERS = [i]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -100,8 +103,6 @@ print(f"Output path: {output_path}")
 files = sorted(
     file_fn(data_path), key=lambda hdu: hdu[0].header.get("EXPMID", float("inf"))
 )
-# nsci = 1; ncal = 4
-rolls = {}
 sci_files = []
 cal_files = []
 
@@ -123,11 +124,15 @@ for file in files:
     file["BADPIX"].data[:, -3:] = 1
     file["BADPIX"].data[:3, :] = 1
     file["BADPIX"].data[-3:, :] = 1
-
-    if file[0].header["TARGPROP"] == "TD-PDS-70":
-        file["BADPIX"].data[36:66, :25] = 1  # BACKGROUND STAR?
+    # file["BADPIX"].data[36:66, :25] = 1  # BACKGROUND STAR?
+    # file["BADPIX"].data[40, 45] = 1  # MIDDLE PIXELS
 
     if not bool(file[0].header["IS_PSF"]):
+        # badpix = np.array(file["BADPIX"].data, dtype=bool)
+        # im = np.array(file["SLOPE"].data.sum(0))
+        # im = np.where(badpix, np.nan, im)
+        # mask = binary_dilation(im == np.nanmax(im), iterations=2)
+        # file["BADPIX"].data += mask.astype(int)
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 228337"
@@ -135,7 +140,7 @@ for file in files:
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
 
-# dorito.misc.truncate_files(sci_files, i)
+dorito.misc.truncate_files(sci_files, 10)
 
 
 # %%
@@ -224,22 +229,35 @@ print("Training...")
 n_epoch = 600
 
 config = {
-    # "positions": sgd(1e-1, 0),
-    # "fluxes": sgd(5e-2, 0),
-    # "aberrations": sgd(1e-1, 4),
-    # "spectra": sgd(2e-1, 10),
-    # "phases": sgd(2e0, 20),
-    # "amplitudes": sgd(2e0, 20),
-    #
-    "positions": sgd(3e-3, 0),
-    "fluxes": sgd(5e-3, 0),
-    "aberrations": sgd(5e-3, 4),
-    "spectra": sgd(1e-2, 10),
-    "phases": sgd(5e-4, 30),
-    "amplitudes": sgd(5e-4, 30),
+    "positions": sgd(5e-1, 0, (10, 0.1)),
+    "fluxes": sgd(5e-2, 5),
+    "aberrations": sgd(2e0, 10),
+    "spectra": sgd(5e-1, 25),
+    "amplitudes": sgd(5e-1, 50),
+    "phases": sgd(5e-1, 50),
 }
 
+pos_keys = []
+spc_keys = []
+for exp in exposures:
+    if not exp.calibrator:
+        pos_keys.append(exp.map_param("positions"))
+        spc_keys.append(exp.map_param("spectra"))
+
+
+def grad_fn(model, grads, args):
+    # Nuke the position gradients for the science exposures
+    if "positions" in config.keys():
+        grads = grads.multiply(pos_keys, 0.1)
+
+    # Reduce spectra gradients for the science exposures
+    if "spectra" in config.keys():
+        grads = grads.multiply(spc_keys, 0.3)
+    return grads, args
+
+
 trainer = amigo.fitting.Trainer(
+    grad_fn=grad_fn,
     cache=os.path.join(amigo_cache, "fishers/"),
 )
 
@@ -364,7 +382,7 @@ for exp in tqdm(exposures):
     except Exception as e:
         print(f"Skipped {exp.key}")
         continue
-    solver = optx.BFGS(rtol=1e-6, atol=1e-6)
+    solver = optx.BFGS(rtol=1e-8, atol=1e-8)
     sol = optx.minimise(fun, solver, initial_params, args, throw=False, max_steps=2048)
     sols_out[exp.key] = sol
 
@@ -412,12 +430,16 @@ for key, values in result.state.items():
 # final_model = model.set("params", params)
 
 # %%
-for filt in ["F380M", "F430M", "F480M"]:
-    for exp in exposures:
-        if exp.filter == filt:
-            exp_type = "Calibrator" if exp.calibrator else "Science"
-            print(exp.filter, exp_type, exp.star, exp.ngroups)
-            amigo.plotting.summarise_fit(final_model, exp, save_path=output_path)
+try:
+    for filt in FILTERS:
+        for exp in exposures:
+            if exp.filter == filt:
+                exp_type = "Calibrator" if exp.calibrator else "Science"
+                print(exp.filter, exp_type, exp.star, exp.ngroups)
+                amigo.plotting.summarise_fit(final_model, exp, save_path=output_path)
+except Exception as e:
+    print(f"Error during plotting: {e}")
+    pass
 
 
 # %%
@@ -432,7 +454,7 @@ for exp in tqdm(exposures):
     print("Fishing...", exp.key)
     loglike_fn = lambda model: -np.nansum(exp.loglike(model))
     params = [exp.map_param("amplitudes"), exp.map_param("phases")]
-    fmat = FIM(final_model, params, loglike_fn, reduce_ram=True, batch_size=3)
+    fmat = FIM(final_model, params, loglike_fn, reduce_ram=True, batch_size=1)
     fmats[exp.get_key("phases")] = fmat
     print("Fished.")
 
