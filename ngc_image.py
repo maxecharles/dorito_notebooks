@@ -9,11 +9,13 @@ import dorito
 
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_platform_name", "gpu")
+print("Default Backend:", jax.default_backend())
 print(jax.local_devices()[0].device_kind)
 
 # other helpful libraries
 import numpy
 import os
+import sys
 import astropy
 
 # matplotlib ecosystem
@@ -128,6 +130,11 @@ if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
 
+# Saving a copy of this script
+import shutil
+shutil.copy(__file__, os.path.join(output_path, "script.py"))
+
+
 # %%
 from astropy.time import Time
 
@@ -151,7 +158,7 @@ for file in files:
 # ## Building the model
 
 # %%
-source_size = 201  # pixels
+source_size = 121  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 sci_fits = [
@@ -173,7 +180,6 @@ model = dorito.models.ResolvedAmigoModel(
     ramp_model=amigo.ramp_models.NonLinearRamp(),
     read=amigo.read_models.ReadModel(),
     state=load_dict(cache + "calibration.npy"),
-    rotate=True,
 )
 
 # %% [markdown]
@@ -285,6 +291,8 @@ result = trainer.train(
 # %%
 from dLux import utils as dlu
 
+np.save(output_path + "final_params.npy", result.model.params, allow_pickle=True)
+
 optics_diameter = 6.603464  # JWST aperture diameter in meters
 
 wavel = 4.8e-6
@@ -314,8 +322,8 @@ for exp in fits:
     plt.tight_layout()
     plt.show()
 
-# amigo.plotting.plot_losses(result.losses[0], start=int(n_epoch * 0.75))
-# amigo.plotting.plot(result.history)
+amigo.plotting.plot_losses(result.losses[0], start=int(n_epoch * 0.75))
+amigo.plotting.plot(result.history)
 
 for exp in fits:
     exp.print_summary()
