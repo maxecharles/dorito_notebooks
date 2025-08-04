@@ -182,149 +182,22 @@ model = dorito.models.ResolvedAmigoModel(
     state=load_dict(cache + "calibration.npy"),
 )
 
-# %% [markdown]
-# ## Optimisation Stage 1: Gradient Descent
-
 # %%
-pos_keys = []
-spc_keys = []
-for exp in fits:
-    if not exp.calibrator:
-        pos_keys.append(exp.map_param("positions"))
-        spc_keys.append(exp.map_param("spectra"))
+from time import time
+@zdx.filter_jit
+def model_it(model, exposure):
+    return exposure(model)
 
+# compile the model
+print("Compiling model...")
 
-def norm_fn(model_params, args):
-    params = model_params.params
-    # if "log_distribution" in params.keys():
-    #     for k, log_dist in params["log_distribution"].items():
-    #         distribution = 10**log_dist
-    #         params["log_distribution"][k] = np.log10(distribution / distribution.sum())
+start = time()
+model_it(model, fits[0])
+print(f"Model compiled in {time() - start:.2f} seconds")
 
-    if "spectra" in params.keys():
-        spectra = jtu.map(
-            lambda x: np.clip(x, a_min=-0.8, a_max=0.8), params["spectra"]
-        )
-        params["spectra"] = spectra
-
-    return model_params.set("params", params), args
-
-
-pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
-
-# %%
-n_epoch = 100
-
-config = {
-    "positions": sgd(5e-2, 0),
-    "fluxes": sgd(5e-2, 5),
-    "aberrations": sgd(2e-1, 10),
-    "log_dist": adam(1e-1, 10, (1000, 0.75)),
-    "spectra": sgd(2e-1, 50),
-    # "amplitudes": sgd(5e-1, 50),
-    # "phases": sgd(5e-1, 50),
-}
-
-
-def grad_fn(model, grads, args):
-    # Nuke the position gradients for the science exposures
-    if "positions" in config.keys():
-        grads = grads.multiply(pos_keys, 0.1)
-
-    # Reduce spectra gradients for the science exposures
-    if "spectra" in config.keys():
-        grads = grads.multiply(spc_keys, 0.3)
-    return grads, args
-
-
-reg_dict = {
-    # "L1": 2.0e3,
-    # "L1": 5.0e-4,
-    # "L2": None,
-    # "TV": 1.0e6,
-    # "TV": 1.0e6,
-    # "QV": 1.0e6,
-    # "QV": 1.0e-3,
-    # "ME": 1.0e2,
-    # "SF": 1e3,
-}
-
-args = {
-    "reg_dict": reg_dict,
-    # # "reg_func_dict": dorito.stats.reg_func_dict,
-    "reg_func_dict": {
-        # "L1": dorito.stats.L1_on_wavelets,
-        # "L1": L1_REG,
-        # "QV": dorito.stats.TSV,
-        "TV": dorito.stats.TV,
-        # "ME": dorito.stats.ME,
-    },
-    # "mask": mask,
-}
-
-trainer = amigo.fitting.Trainer(
-    # loss_fn=regularised_loss_fn,
-    norm_fn=norm_fn,
-    grad_fn=grad_fn,
-    cache=os.path.join(amigo_cache, "fishers/"),
-)
-
-print("Populating fishers...")
-trainer = trainer.populate_fishers(
-    # model.set("detector.ramp.bleed", False).set("params", params),
-    model,
-    fits,
-    hessians=load_dict(cache + "jacobians.npy")["hessian"],
-    parameters=[p for p in config.keys()],  # if p not in ["log_distribution"]],
-)
-
-print("Number of exposures: ", len(fits))
-
-# Train the model
-result = trainer.train(
-    model=model,
-    optimisers=config,
-    epochs=n_epoch,
-    batches=fits,
-)
-
-# %%
-from dLux import utils as dlu
-
-np.save(output_path + "final_params.npy", result.model.params, allow_pickle=True)
-
-optics_diameter = 6.603464  # JWST aperture diameter in meters
-
-wavel = 4.8e-6
-
-for exp in fits:
-
-    if exp.calibrator:
-        continue
-    dist = result.model.get_distribution(exp)
-    fig, ax = plt.subplots(figsize=(6, 2.3))
-
-    c0 = dorito.plotting.plot_result(
-        ax,
-        dist,
-        pixel_scale=pscale(model),
-        cmap="inferno",
-        roll_angle_degrees=+exp.parang,
-        norm=mpl.colors.PowerNorm(0.3, vmax=0.3),
-        diff_lim=dlu.rad2arcsec(wavel / optics_diameter),
-        # scale=1.0,
-    )
-
-    fig.colorbar(c0)
-
-    ax.set(title=f"NGC1068 - {exp.key}")  #   xticks=ticks, yticks=ticks)
-
-    plt.tight_layout()
-    plt.show()
-
-amigo.plotting.plot_losses(result.losses[0], start=int(n_epoch * 0.75), save_path=output_path)
-amigo.plotting.plot(result.history, save_path=output_path)
-
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
+# timing the model
+print("Timing model...")
+for i in range(10):
+    start = time()
+    model_it(model, fits[0])
+    print(f"Model {i} took {time() - start:.2f} seconds")

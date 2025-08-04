@@ -68,8 +68,8 @@ output_path = os.path.join(amigo_cache, "outputs/PDS70/")
 EXP_TYPE = "NIS_AMI"
 FILTERS = [
     "F480M",
-    "F430M",
-    "F380M",
+    # "F430M",
+    # "F380M",
 ]
 
 # Bind file path, type and exposure type
@@ -221,7 +221,7 @@ model = amigo.core_models.AmigoModel(
 
 # %%
 print("Training...")
-n_epoch = 600
+n_epoch = 250
 
 config = {
     # "positions": sgd(1e-1, 0),
@@ -432,7 +432,7 @@ for exp in tqdm(exposures):
     print("Fishing...", exp.key)
     loglike_fn = lambda model: -np.nansum(exp.loglike(model))
     params = [exp.map_param("amplitudes"), exp.map_param("phases")]
-    fmat = FIM(final_model, params, loglike_fn, reduce_ram=True, batch_size=3)
+    fmat = FIM(final_model, params, loglike_fn, reduce_ram=True, batch_size=25)
     fmats[exp.get_key("phases")] = fmat
     print("Fished.")
 
