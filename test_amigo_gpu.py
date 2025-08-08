@@ -9,9 +9,9 @@ import dorito
 
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_platform_name", "gpu")
-# print("Default Backend:", jax.default_backend())
+print("Default Backend:", jax.default_backend())
 print("Using device:", jax.devices()[0])
-# print(jax.local_devices()[0].device_kind)
+print(jax.local_devices()[0].device_kind)
 
 # other helpful libraries
 import os
@@ -152,13 +152,11 @@ for file in files:
     t0 = t
 
 
-
-
 # %% [markdown]
 # ## Building the model
 
 # %%
-source_size = 121  # pixels
+source_size = 63  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 sci_fits = [
@@ -199,5 +197,5 @@ print(f"Model compiled in {time() - start:.2f} seconds")
 print("Timing model...")
 for i in range(10):
     start = time()
-    model_it(model, fits[0])
+    model_it(model, fits[0]).block_until_ready()
     print(f"Model {i} took {time() - start:.2f} seconds")
