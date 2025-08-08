@@ -159,22 +159,18 @@ for file in files:
 # ## Building the model
 
 # %%
-source_size = 63  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
-sci_fits = [
-    dorito.model_fits.ResolvedFit(file, source_size, use_cov=True) for file in sci_files
-]
+sci_fits = [amigo.model_fits.PointFit(file, use_cov=True) for file in sci_files]
 cal_fits = [amigo.model_fits.PointFit(file, use_cov=True) for file in cal_files]
 
 # I only want to use the calibrator in the same primary dither position
 # fits = cal_fits[0:1]
-fits = sci_fits[0:1] + cal_fits[0:1]
-# fits = sci_fits + cal_fits
+# fits = sci_fits[0:1] + cal_fits[0:1]
+fits = sci_fits + cal_fits
 
 # building the model
-model = dorito.models.ResolvedAmigoModel(
-    # model = amigo.core_models.AmigoModel(
+model = amigo.core_models.AmigoModel(
     exposures=fits,
     optics=amigo.optical_models.AMIOptics(),
     detector=amigo.detector_models.LinearDetector(),
@@ -204,4 +200,30 @@ print("Timing model...")
 for i in range(10):
     start = time()
     model_it(model, fits[0]).block_until_ready()
+    print(f"Model {i} took {time() - start:.2f} seconds")
+
+# %%
+from amigo.fitting import loss_fn, get_val_grad_fn
+
+loss = get_val_grad_fn(loss_fn)
+model_params = amigo.core_models.ModelParams({p: model.get(p) for p in ["aberrations"]})
+
+
+@zdx.filter_jit
+def loss_it(model, exposures):
+    print("Compiling loss...")
+    x = loss(model_params, model, exposures, {})
+    # print(x)
+    return x[0][0]
+
+
+start = time()
+loss_it(model, fits)
+print(f"Loss function compiled in {time() - start:.2f} seconds")
+
+# timing the model
+print("Timing model...")
+for i in range(10):
+    start = time()
+    loss_it(model, fits).block_until_ready()
     print(f"Model {i} took {time() - start:.2f} seconds")
