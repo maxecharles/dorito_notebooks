@@ -234,13 +234,22 @@ for i in range(10):
 # %%
 print("Trying big matrix multiplication...")
 
+n = 15000
+
 
 @zdx.filter_jit
 def big_matrix_mult():
     key = jax.random.PRNGKey(0)
-    a = jax.random.uniform(key, (5000, 5000))
-    b = jax.random.uniform(jax.random.split(key)[1], (5000, 5000))
+    a = jax.random.uniform(key, (n, n))
+    b = jax.random.uniform(jax.random.split(key)[1], (n, n))
     return np.dot(a, b)
+
+
+print("Compiling big matrix multiplication...")
+start = time()
+big_matrix_mult()
+end = time()
+print(f"Big matrix multiplication compiled in {end - start:.2f} seconds")
 
 
 for i in range(10):
