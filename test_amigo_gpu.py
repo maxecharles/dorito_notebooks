@@ -200,7 +200,8 @@ print("Timing model...")
 for i in range(10):
     start = time()
     model_it(model, fits[0]).block_until_ready()
-    print(f"Model {i} took {time() - start:.2f} seconds")
+    end = time()
+    print(f"Model {i} took {end - start:.2f} seconds")
 
 # %%
 from amigo.fitting import loss_fn, get_val_grad_fn
@@ -226,4 +227,24 @@ print("Timing model...")
 for i in range(10):
     start = time()
     loss_it(model, fits).block_until_ready()
-    print(f"Model {i} took {time() - start:.2f} seconds")
+    end = time()
+    print(f"Model {i} took {end - start:.2f} seconds")
+
+
+# %%
+print("Trying big matrix multiplication...")
+
+
+@zdx.filter_jit
+def big_matrix_mult():
+    key = jax.random.PRNGKey(0)
+    a = jax.random.uniform(key, (5000, 5000))
+    b = jax.random.uniform(jax.random.split(key)[1], (5000, 5000))
+    return np.dot(a, b)
+
+
+for i in range(10):
+    start = time()
+    big_matrix_mult().block_until_ready()
+    end = time()
+    print(f"Big matrix multiplication {i} took {end - start:.2f} seconds")
