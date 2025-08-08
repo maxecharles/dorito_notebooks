@@ -1,17 +1,18 @@
 # %%
 # jax ecosystem
 import jax
+
+jax.config.update("jax_platform_name", "cpu")
+# print("Default Backend:", jax.default_backend())
+print("Using device:", jax.devices()[0])
+jax.config.update("jax_enable_x64", True)
+print(jax.local_devices()[0].device_kind)
+
 from jax import numpy as np, tree as jtu
 import zodiax as zdx
 from zodiax.optimisation import sgd, adam
 import amigo
 import dorito
-
-jax.config.update("jax_enable_x64", True)
-jax.config.update("jax_platform_name", "cpu")
-# print("Default Backend:", jax.default_backend())
-print("Using device:", jax.devices()[0])
-print(jax.local_devices()[0].device_kind)
 
 # other helpful libraries
 import os
@@ -132,6 +133,7 @@ print(f"Output path: {output_path}")
 
 # Saving a copy of this script
 import shutil
+
 shutil.copy(__file__, os.path.join(output_path, "script.py"))
 
 
@@ -182,9 +184,12 @@ model = dorito.models.ResolvedAmigoModel(
 
 # %%
 from time import time
+
+
 @zdx.filter_jit
 def model_it(model, exposure):
     return exposure(model)
+
 
 # compile the model
 print("Compiling model...")
