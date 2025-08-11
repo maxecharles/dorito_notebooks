@@ -21,11 +21,11 @@ import ehtplot
 import scienceplots
 import cmasher as cmr
 
-import sys
+# import sys
 
-i = sys.argv[1]
+# i = sys.argv[1]
 # i = int(sys.argv[1])
-print(f"Running script with input {i}")
+# print(f"Running script with input {i}")
 # # ... your logic here ...
 # i = 5
 
@@ -55,25 +55,27 @@ coolwarm.set_bad("k", 0.5)
 from socket import gethostname
 
 if gethostname() == "glinton":
-    morgana = "/media/morgana1/"
+    path = "/media/morgana1/snert/max/"
+elif gethostname() == "AJQ4YHQH9TX":
+    path = "/Volumes/morgana1/snert/max/"
 else:
-    morgana = "/Volumes/morgana1/"
+    path = "/fred/oz440/max/"
 
 source_name = "NGC1068"
-data_path = os.path.join(morgana, f"snert/max/data/JWST/{source_name}/calslope/")
-uncal_path = os.path.join(morgana, f"snert/max/data/JWST/{source_name}/uncal/")
-amigo_cache = os.path.join(morgana, "snert/max/data/amigo_files/")
+data_path = os.path.join(path, f"data/JWST/{source_name}/calslope/")
+uncal_path = os.path.join(path, f"data/JWST/{source_name}/uncal/")
+amigo_cache = os.path.join(path, "data/amigo_files/")
 
 cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
-# FILTERS = [
-#     "F480M",
-#     "F430M",
-#     "F380M",
-# ]
-FILTERS = [i]
+FILTERS = [
+    "F480M",
+    # "F430M",
+    # "F380M",
+]
+# FILTERS = [i]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -199,7 +201,8 @@ cal_exposures = [
 sci_exposures = [
     amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files
 ]
-exposures = cal_exposures + sci_exposures
+exposures = cal_exposures[0:1] + sci_exposures[0:1]
+# exposures = cal_exposures + sci_exposures
 exposures = [
     exp.set("cov", fudge_cov(exp.cov, get_depth(exp, threshold=25_000)))
     for exp in exposures
@@ -226,10 +229,10 @@ model = amigo.core_models.AmigoModel(
 
 # %%
 print("Training...")
-n_epoch = 600
+n_epoch = 50
 
 config = {
-    "positions": sgd(5e-1, 0, (10, 0.1)),
+    "positions": sgd(5e-1, 0, (10, 0.1), (500, 0)),
     "fluxes": sgd(5e-2, 5),
     "aberrations": sgd(2e0, 10),
     "spectra": sgd(5e-1, 25),
@@ -284,12 +287,11 @@ result = trainer.train(
 losses = np.array([v for v in result.losses.values()]).mean(0)
 
 amigo.plotting.plot_losses(losses, start=int(0.8 * n_epoch), save_path=output_path)
-# amigo.plotting.plot(result.history, save_path=output_path)
+amigo.plotting.plot(result.history, save_path=output_path)
 
-# # for exp in exposures:
-# for exp in exposures:
-#     print(exp.star)
-#     amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
+for exp in exposures:
+    print(exp.star)
+    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
 
 
 # %%
