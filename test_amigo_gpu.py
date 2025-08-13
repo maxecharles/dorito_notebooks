@@ -234,7 +234,7 @@ for i in range(10):
 # %%
 print("Trying big matrix multiplication...")
 
-n = 15000
+n = 10000
 
 
 @zdx.filter_jit

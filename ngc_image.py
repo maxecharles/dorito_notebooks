@@ -54,8 +54,8 @@ output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 EXP_TYPE = "NIS_AMI"
 FILTERS = [
     "F480M",
-    "F430M",
-    "F380M",
+    # "F430M",
+    # "F380M",
     # "F277W",
 ]
 
@@ -185,7 +185,7 @@ model = dorito.models.ResolvedAmigoModel(
 # %%
 for exp in fits:
     exp.print_summary()
-    amigo.plotting.summarise_fit(model, exp, residuals=False)
+    amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
 
 # %% [markdown]
 # ## Optimisation Stage 1: Gradient Descent

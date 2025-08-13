@@ -165,8 +165,8 @@ cal_fits = [amigo.model_fits.PointFit(file, use_cov=True) for file in cal_files]
 
 # I only want to use the calibrator in the same primary dither position
 # fits = cal_fits[0:1]
-# fits = sci_fits[0:1] + cal_fits[0:1]
-fits = sci_fits + cal_fits
+fits = sci_fits[0:1] + cal_fits[0:1]
+# fits = sci_fits + cal_fits
 
 # building the model
 model = amigo.core_models.AmigoModel(
@@ -233,7 +233,7 @@ for i in range(10):
 # %%
 print("Trying big matrix multiplication...")
 
-n = 15000
+n = 10000
 
 
 @zdx.filter_jit
