@@ -197,7 +197,8 @@ print(f"Model compiled in {time() - start:.2f} seconds")
 
 # timing the model
 print("Timing model...")
-for i in range(10):
+# with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
+for i in range(5):
     start = time()
     model_it(model, fits[0]).block_until_ready()
     end = time()
@@ -224,17 +225,19 @@ print(f"Loss function compiled in {time() - start:.2f} seconds")
 
 # timing the model
 print("Timing model...")
-for i in range(10):
-    start = time()
-    loss_it(model, fits).block_until_ready()
-    end = time()
-    print(f"Model {i} took {end - start:.2f} seconds")
+with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
+
+    for i in range(5):
+        start = time()
+        loss_it(model, fits).block_until_ready()
+        end = time()
+        print(f"Model {i} took {end - start:.2f} seconds")
 
 
 # %%
 print("Trying big matrix multiplication...")
 
-n = 10000
+n = 5000
 
 
 @zdx.filter_jit
@@ -252,7 +255,7 @@ end = time()
 print(f"Big matrix multiplication compiled in {end - start:.2f} seconds")
 
 
-for i in range(10):
+for i in range(5):
     start = time()
     big_matrix_mult().block_until_ready()
     end = time()
