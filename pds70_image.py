@@ -4,12 +4,6 @@
 # %%
 # jax ecosystem
 import jax
-
-# # Configuration for JAX persistent cache
-jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
-jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
-jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
-jax.config.update("jax_persistent_cache_enable_xla_caches", "all")
 jax.config.update("jax_platform_name", "gpu")
 jax.config.update("jax_enable_x64", True)
 print(jax.local_devices()[0].device_kind)
@@ -78,7 +72,41 @@ file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
 )
 
 # %% [markdown]
-# # Loading in data
+from datetime import datetime
+form = "%d-%m-%y_%H-%M-%S.%f"
+now = datetime.now()
+datetime_str = now.strftime(form)
+
+# clear directory of empty folders
+for folder in os.listdir(output_path):
+    folder_dir = os.path.join(output_path, folder)
+
+    # skip if not a directory
+    if not os.path.isdir(folder_dir):
+        continue
+
+    # if the folder is empty
+    if len(os.listdir(folder_dir)) == 0:
+
+        try:
+            then = datetime.strptime(folder, form)
+                
+            # remove empty folder if it is older than 1 hour
+            if (now - then).seconds > 3600:  # 1 hour
+                print(f"Removing empty folder: {folder_dir}")
+                os.rmdir(folder_dir)
+        except ValueError:
+            # if the folder name is not in the correct format, skip it
+            print(f"Deleting folder: {folder_dir} (not in correct format)")
+            os.rmdir(folder_dir)
+
+# datetime_str = f"{i}_groups"
+print(datetime_str)
+
+output_path = os.path.join(output_path, datetime_str) + "/"
+if not os.path.exists(output_path):
+    os.makedirs(output_path)
+print(f"Output path: {output_path}")
 
 # %%
 files = sorted(
@@ -112,6 +140,9 @@ for file in files:
         file["BADPIX"].data[19, 53] = 1
         file["BADPIX"].data[5, 22] = 1
         file["BADPIX"].data[19, 41] = 1
+        file["BADPIX"].data[:66, :25] = 1  # BACKGROUND STAR?
+        file["BADPIX"].data[76, 45] = 1
+        file["BADPIX"].data[59, 30] = 1
 
     if not bool(file[0].header["IS_PSF"]):
         sci_files.append(file)
@@ -120,6 +151,9 @@ for file in files:
         cal_files.append(file)
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
+
+# dorito.misc.truncate_files(sci_files, 65)
+
 
 # %%
 from astropy.time import Time
@@ -139,7 +173,7 @@ for file in files:
 
 
 # %%
-source_size = 121  # pixels
+source_size = 221  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 sci_fits = [dorito.model_fits.MCAFit(file, use_cov=True) for file in sci_files]
@@ -164,7 +198,11 @@ model = dorito.models.MCAModel(
 # %%
 for exp in fits:
     exp.print_summary()
-    amigo.plotting.summarise_fit(model, exp, residuals=False, save_dir=output_path)
+    amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
+
+
+import shutil
+shutil.copy(__file__, output_path + '/script.py') 
 
 # %% [markdown]
 # ## Optimisation Stage 1: Gradient Descent
@@ -204,14 +242,15 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 150
+n_epoch = 8000
 
 config = {
     "positions": sgd(3e-3, 0),
     "fluxes": sgd(5e-3, 0),
     "aberrations": sgd(5e-3, 4),
     "spectra": sgd(1e-2, 20),
-    "log_dist": adam(1e-1, 30, (1000, 0.75)),
+    "log_dist": adam(1e-3, 30),
+    # "log_dist": adam(1e-1, 30, (1000, 0.75)),
     "contrast": sgd(1e-6, 100),
     # "contrast": sgd(1e-6, 1000000),
     # "phases": sgd(1e-3, 20),
@@ -227,8 +266,21 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
+args = {
+    "reg_dict": {
+        # "L1": dorito.stats.L1_on_wavelets,
+        # "L1": L1_REG,
+        # "QV": dorito.stats.TSV,
+        # 1e4: dorito.stats.TV,
+        "ME": (3e0, dorito.stats.ME),
+    }
+}
+
+
+
+
 trainer = amigo.fitting.Trainer(
-    # loss_fn=regularised_loss_fn,
+    loss_fn=dorito.stats.ramp_regularised_loss_fn,
     norm_fn=norm_fn,
     grad_fn=grad_fn,
     cache=os.path.join(amigo_cache, "fishers/"),
@@ -251,7 +303,11 @@ result = trainer.train(
     optimisers=config,
     epochs=n_epoch,
     batches=fits,
+    args=args,
 )
+
+np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
+result_model = result.model
 
 # %%
 from dLux import utils as dlu
@@ -261,7 +317,9 @@ result_model = result.model
 
 optics_diameter = 6.603464  # JWST aperture diameter in meters
 
-wavel = 4.8e-6
+def eff_wavel(model, filt):
+    wavels, weights = model.filters[filt]
+    return np.dot(wavels, weights)
 
 for exp in fits:
 
@@ -278,7 +336,7 @@ for exp in fits:
         # roll_angle_degrees=-exp.parang,
         norm=mpl.colors.PowerNorm(0.3),
         # norm=mpl.colors.PowerNorm(0.3, vmax=0.3),
-        diff_lim=dlu.rad2arcsec(wavel / optics_diameter),
+        diff_lim=dlu.rad2arcsec(eff_wavel(model, exp.filter) / optics_diameter),
         # scale=1.5,
     )
 
@@ -304,14 +362,14 @@ for exp in fits:
     )
 
     plt.tight_layout()
-    plt.show()
-    # plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
+    # plt.show()
+    plt.savefig(output_path + f"dist_{exp.key}.png", dpi=300)
 
 amigo.plotting.plot_losses(
-    result.losses[0], start=int(n_epoch * 0.75), save_dir=output_path
+    result.losses[0], start=int(n_epoch * 0.75), save_path=output_path
 )
-amigo.plotting.plot(result.history, save_dir=output_path)
+amigo.plotting.plot(result.history, save_path=output_path)
 
 for exp in fits:
     exp.print_summary()
-    amigo.plotting.summarise_fit(result.model, exp, save_dir=output_path)
+    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)

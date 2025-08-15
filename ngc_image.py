@@ -69,9 +69,32 @@ file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
 )
 
 from datetime import datetime
+form = "%d-%m-%y_%H-%M-%S.%f"
+now = datetime.now()
+datetime_str = now.strftime(form)
 
-now = datetime.now().replace(second=0, microsecond=0)
-datetime_str = now.strftime("%d-%m-%y_%H-%M")
+# clear directory of empty folders
+for folder in os.listdir(output_path):
+    folder_dir = os.path.join(output_path, folder)
+
+    # skip if not a directory
+    if not os.path.isdir(folder_dir):
+        continue
+
+    # if the folder is empty
+    if len(os.listdir(folder_dir)) == 0:
+
+        try:
+            then = datetime.strptime(folder, form)
+                
+            # remove empty folder if it is older than 1 hour
+            if (now - then).seconds > 3600:  # 1 hour
+                print(f"Removing empty folder: {folder_dir}")
+                os.rmdir(folder_dir)
+        except ValueError:
+            # if the folder name is not in the correct format, skip it
+            print(f"Deleting folder: {folder_dir} (not in correct format)")
+            os.rmdir(folder_dir)
 
 # datetime_str = f"{i}_groups"
 print(datetime_str)
@@ -154,13 +177,13 @@ class DynamicResolvedFit(dorito.model_fits.ResolvedFit):
         return super().get_key(param)
 
 # %%
-source_size = 121  # pixels
+source_size = 161  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 sci_fits = [
-    DynamicResolvedFit(file, source_size, use_cov=True)
-    for file in sci_files
-    # dorito.model_fits.ResolvedFit(file, source_size, use_cov=True) for file in sci_files
+    # DynamicResolvedFit(file, source_size, use_cov=True)
+    # for file in sci_files
+    dorito.model_fits.ResolvedFit(file, source_size, use_cov=True) for file in sci_files
 ]
 cal_fits = [amigo.model_fits.PointFit(file, use_cov=True) for file in cal_files]
 
@@ -186,6 +209,9 @@ model = dorito.models.ResolvedAmigoModel(
 for exp in fits:
     exp.print_summary()
     amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
+
+import shutil
+shutil.copy(__file__, output_path + '/script.py') 
 
 # %% [markdown]
 # ## Optimisation Stage 1: Gradient Descent
@@ -218,13 +244,13 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 50
+n_epoch = 5000
 
 config = {
     "positions": sgd(5e-2, 0),
     "fluxes": sgd(5e-2, 5),
     "aberrations": sgd(2e-1, 10),
-    "log_dist": adam(1e-1, 10, (1000, 0.75)),
+    "log_dist": adam(5e-2, 10, (1000, 0.75)),
     "spectra": sgd(2e-1, 50),
     # "amplitudes": sgd(5e-1, 50),
     # "phases": sgd(5e-1, 50),
@@ -308,7 +334,7 @@ from dLux import utils as dlu
 
 optics_diameter = 6.603464  # JWST aperture diameter in meters
 
-wavel = 4.8e-6
+wavel = 4.8e-6  # TODO dont hardcore this
 
 for exp in fits:
 
