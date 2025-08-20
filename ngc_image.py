@@ -44,7 +44,7 @@ else:
     path = "/fred/oz440/max/"
 
 source_name = "NGC1068"
-data_path = os.path.join(path, f"data/JWST/{source_name}/calslope/")
+data_path = os.path.join(path, f"data/JWST/{source_name}/new_calslope/new_calslope/")
 uncal_path = os.path.join(path, f"data/JWST/{source_name}/uncal/")
 amigo_cache = os.path.join(path, "data/amigo_files/")
 
@@ -176,16 +176,76 @@ class DynamicResolvedFit(dorito.model_fits.ResolvedFit):
 
         return super().get_key(param)
 
+
+class YearPointFit(amigo.model_fits.PointFit):
+    date: str  # isot
+    year: str
+
+    def __init__(self, file, use_cov=True):
+        expmid = Time(file[0].header["EXPMID"], format="mjd")
+        self.date = str(expmid.isot)
+        self.year = f"{expmid.ymdhms[0]:04d}"
+        super().__init__(file, use_cov=use_cov)
+
+    def get_key(self, param):
+        # Return the per exposure key if not joint fitting
+        match param:
+            case "aberrations":
+                return "_".join([self.year, self.filter])
+
+        return super().get_key(param)
+
+    def print_summary(self):
+        print(
+            # f"File {self.key}\n"
+            f"Star {self.star}\n"
+            f"Filter {self.filter}\n"
+            f"Parang {self.parang:.2f} deg\n"
+            f"Dither {self.dither}\n"
+            f"Date {self.date}\n"
+            # f"nints {self.nints}\n"
+            # f"ngroups {len(self.slopes)+1}\n"
+        )
+
+
+class YearResolvedFit(DynamicResolvedFit):
+# class YearResolvedFit(dorito.model_fits.ResolvedFit):
+
+    date: str  # isot
+    year: str
+
+    def __init__(self, file, use_cov=True):
+        expmid = Time(file[0].header["EXPMID"], format="mjd")
+        self.date = str(expmid.isot)
+        self.year = f"{expmid.ymdhms[0]:04d}"
+        super().__init__(file, use_cov=use_cov)
+
+    def get_key(self, param):
+        # Return the per exposure key if not joint fitting
+        match param:
+            case "aberrations":
+                return "_".join([self.year, self.filter])
+
+        return super().get_key(param)
+
+    def print_summary(self):
+        print(
+            # f"File {self.key}\n"
+            f"Star {self.star}\n"
+            f"Filter {self.filter}\n"
+            f"Parang {self.parang:.2f} deg\n"
+            f"Dither {self.dither}\n"
+            f"Date {self.date}\n"
+            # f"nints {self.nints}\n"
+            # f"ngroups {len(self.slopes)+1}\n"
+        )
+
 # %%
-source_size = 161  # pixels
+source_size = 131  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
-sci_fits = [
-    # DynamicResolvedFit(file, source_size, use_cov=True)
-    # for file in sci_files
-    dorito.model_fits.ResolvedFit(file, source_size, use_cov=True) for file in sci_files
-]
-cal_fits = [amigo.model_fits.PointFit(file, use_cov=True) for file in cal_files]
+sci_fits = [YearResolvedFit(file, use_cov=True) for file in sci_files]
+cal_fits = [YearPointFit(file, use_cov=True) for file in cal_files]
 
 # I only want to use the calibrator in the same primary dither position
 # fits = cal_fits[0:1]
@@ -203,6 +263,9 @@ model = dorito.models.ResolvedAmigoModel(
     ramp_model=amigo.ramp_models.NonLinearRamp(),
     read=amigo.read_models.ReadModel(),
     state=load_dict(cache + "calibration.npy"),
+    param_initers={
+        "distribution": np.ones((source_size, source_size)) / source_size**2
+    },
 )
 
 # %%
@@ -244,13 +307,13 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 5000
+n_epoch = 2000
 
 config = {
     "positions": sgd(5e-2, 0),
     "fluxes": sgd(5e-2, 5),
     "aberrations": sgd(2e-1, 10),
-    "log_dist": adam(5e-2, 10, (1000, 0.75)),
+    "log_dist": adam(2e-2, 10, (1000, 0.75)),
     "spectra": sgd(2e-1, 50),
     # "amplitudes": sgd(5e-1, 50),
     # "phases": sgd(5e-1, 50),
@@ -260,7 +323,7 @@ config = {
 def grad_fn(model, grads, args):
     # Nuke the position gradients for the science exposures
     if "positions" in config.keys():
-        grads = grads.multiply(pos_keys, 0.1)
+        grads = grads.multiply(pos_keys, 0.5)
 
     # Reduce spectra gradients for the science exposures
     if "spectra" in config.keys():
@@ -268,33 +331,14 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
-reg_dict = {
-    # "L1": 2.0e3,
-    # "L1": 5.0e-4,
-    # "L2": None,
-    # "TV": 1.0e6,
-    # "TV": 1.0e6,
-    # "QV": 1.0e6,
-    # "QV": 1.0e-3,
-    # "ME": 1.0e2,
-    # "SF": 1e3,
-}
-
 args = {
-    "reg_dict": reg_dict,
-    # # "reg_func_dict": dorito.stats.reg_func_dict,
-    "reg_func_dict": {
-        # "L1": dorito.stats.L1_on_wavelets,
-        # "L1": L1_REG,
-        # "QV": dorito.stats.TSV,
-        # "TV": dorito.stats.TV,
-        # "ME": dorito.stats.ME,
-    },
-    # "mask": mask,
+    "reg_dict": {
+        # "ME": (3e1, dorito.stats.ME),
+    }
 }
 
 trainer = amigo.fitting.Trainer(
-    # loss_fn=regularised_loss_fn,
+    # loss_fn=dorito.stats.ramp_regularised_loss_fn,
     norm_fn=norm_fn,
     grad_fn=grad_fn,
     cache=os.path.join(amigo_cache, "fishers/"),
@@ -317,6 +361,7 @@ result = trainer.train(
     optimisers=config,
     epochs=n_epoch,
     batches=fits,
+    args=args,
 )
 
 # %%
@@ -334,7 +379,10 @@ from dLux import utils as dlu
 
 optics_diameter = 6.603464  # JWST aperture diameter in meters
 
-wavel = 4.8e-6  # TODO dont hardcore this
+def eff_wavel(model, filt):
+    wavels, weights = model.filters[filt]
+    return np.dot(wavels, weights)
+
 
 for exp in fits:
 
@@ -351,8 +399,8 @@ for exp in fits:
         # roll_angle_degrees=-exp.parang,
         norm=mpl.colors.LogNorm(vmin=1e-5),
         # norm=mpl.colors.PowerNorm(0.3, vmax=0.3),
-        diff_lim=dlu.rad2arcsec(wavel / optics_diameter),
-        scale=1.5,
+        diff_lim=dlu.rad2arcsec(eff_wavel(model, exp.filter) / optics_diameter),
+        scale=1,
     )
 
     fig.colorbar(c0)
@@ -363,11 +411,11 @@ for exp in fits:
     # plt.show()
     plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
 
+for exp in fits:
+    exp.print_summary()
+    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
+
 amigo.plotting.plot_losses(
     result.losses[0], start=int(n_epoch * 0.75), save_path=output_path
 )
 amigo.plotting.plot(result.history, save_path=output_path)
-
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)

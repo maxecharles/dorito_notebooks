@@ -25,6 +25,10 @@ import matplotlib as mpl
 import ehtplot
 import scienceplots
 
+import sys
+
+batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+
 # matplotlib parameters
 plt.style.use(["science", "bright", "no-latex"])
 
@@ -103,7 +107,8 @@ for folder in os.listdir(output_path):
 # datetime_str = f"{i}_groups"
 print(datetime_str)
 
-output_path = os.path.join(output_path, datetime_str) + "/"
+output_path = os.path.join(output_path, batch_idx) + "_25g/"
+# output_path = os.path.join(output_path, datetime_str) + "/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
@@ -152,7 +157,7 @@ for file in files:
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
 
-# dorito.misc.truncate_files(sci_files, 65)
+dorito.misc.truncate_files(sci_files, 25)
 
 
 # %%
@@ -173,7 +178,7 @@ for file in files:
 
 
 # %%
-source_size = 221  # pixels
+source_size = 281  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 sci_fits = [dorito.model_fits.MCAFit(file, use_cov=True) for file in sci_files]
@@ -242,7 +247,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 8000
+n_epoch = 20000
 
 config = {
     "positions": sgd(3e-3, 0),
@@ -251,7 +256,7 @@ config = {
     "spectra": sgd(1e-2, 20),
     "log_dist": adam(1e-3, 30),
     # "log_dist": adam(1e-1, 30, (1000, 0.75)),
-    "contrast": sgd(1e-6, 100),
+    "contrast": sgd(1e-5, 100),
     # "contrast": sgd(1e-6, 1000000),
     # "phases": sgd(1e-3, 20),
     # "amplitudes": sgd(1e-3, 20),
@@ -265,14 +270,14 @@ def grad_fn(model, grads, args):
         grads = grads.multiply(spc_keys, 0.3)
     return grads, args
 
-
+# mes = [2e-1, 5e-1, 1e0, 2e0, 5e0, 1e1, 2e1]
 args = {
     "reg_dict": {
         # "L1": dorito.stats.L1_on_wavelets,
         # "L1": L1_REG,
         # "QV": dorito.stats.TSV,
         # 1e4: dorito.stats.TV,
-        "ME": (3e0, dorito.stats.ME),
+        # "ME": (mes[int(batch_idx)], dorito.stats.ME),
     }
 }
 
@@ -342,7 +347,7 @@ for exp in fits:
 
     fig.colorbar(c0)
 
-    ax.set(title=f"PDS70 - {exp.filter}")  #   xticks=ticks, yticks=ticks)
+    ax.set(title=f"PDS70 - {exp.filter} - {mes[int(batch_idx)]}")  #   xticks=ticks, yticks=ticks)
     ax.scatter([0], [0], marker="*", color="white", s=10)
 
     seps = 1e-3 * np.array([150.5, 218.4])
