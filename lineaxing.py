@@ -1,11 +1,8 @@
 import lineax as lx
 import equinox as eqx
 import jax
-from jax import numpy as jnp
-
-# flags for debugging
-jax.config.update("jax_log_compiles", True)
-jax.config.update("jax_explain_cache_misses", True)
+from jax import random as jr
+from time import time
 
 print("JAX version:", jax.__version__)
 print("Equinox version:", eqx.__version__)
@@ -14,25 +11,34 @@ print("Lineax version:", lx.__version__)
 
 @eqx.filter_jit
 @eqx.debug.assert_max_traces(max_traces=1)
-def f(diag, lower_diag, upper_diag, b):
-    A = lx.TridiagonalLinearOperator(diag, lower_diag, upper_diag)
-    solve = lambda b: lx.linear_solve(A, b, lx.Tridiagonal()).value
-    fx = jnp.vectorize(solve, signature="(n)->(n)")(b.T).T
-    return fx
+def f(operator, vector):
+
+    # just do a big computation
+    size = 10000
+    A = jr.normal(jr.PRNGKey(0), (size, size))
+    a = A @ A
+
+    # do the linear solve
+    a += lx.linear_solve(operator, vector).value.sum()
+
+    return a
 
 
 # setting up inputs
-n = 5
-diag = jnp.ones(n)
-lower_diag = jnp.zeros(n - 1)
-upper_diag = jnp.zeros(n - 1)
-b = jnp.linspace(0, 1, n)
+matrix = jr.normal(jr.PRNGKey(0), (3, 3))
+vector = jr.normal(jr.PRNGKey(1), (3,))
+operator = lx.MatrixLinearOperator(matrix)
 
 # compiling
-f(diag, lower_diag, upper_diag, b).block_until_ready()
-print("Compilation done.")
+start = time()
+f(operator, vector).block_until_ready()
+print("Compilation took", time() - start, "seconds")
 
 # running five times and tracing with perfetto
 with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
     for i in range(5):
-        f(diag, lower_diag, upper_diag, b).block_until_ready()
+        start = time()
+        f(operator, vector).block_until_ready()
+        print(f"Run {i + 1} took {time() - start:.4f} seconds")
+
+print("Done.")
