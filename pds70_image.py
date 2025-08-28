@@ -61,8 +61,8 @@ output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 EXP_TYPE = "NIS_AMI"
 FILTERS = [
     "F480M",
-    # "F430M",
-    # "F380M",
+    "F430M",
+    "F380M",
     # "F277W",
 ]
 
@@ -247,7 +247,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 20000
+n_epoch = 2000
 
 config = {
     "positions": sgd(3e-3, 0),

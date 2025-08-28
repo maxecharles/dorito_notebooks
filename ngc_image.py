@@ -2,19 +2,18 @@
 # jax ecosystem
 import jax
 from jax import numpy as np, tree as jtu
-import zodiax as zdx
-from zodiax.optimisation import sgd, adam
-import amigo
-import dorito
 
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_platform_name", "gpu")
 print(jax.local_devices()[0].device_kind)
 
+import zodiax as zdx
+from zodiax.optimisation import sgd, adam
+import amigo
+import dorito
+
 # other helpful libraries
-import numpy
 import os
-import astropy
 
 # matplotlib ecosystem
 import matplotlib.pyplot as plt
@@ -171,7 +170,7 @@ class DynamicResolvedFit(dorito.model_fits.ResolvedFit):
 
     def get_key(self, param):
         match param:
-            case "log_distribution":
+            case "log_dist":
                 return "_".join([self.key, self.filter])
 
         return super().get_key(param)
