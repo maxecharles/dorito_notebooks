@@ -103,11 +103,11 @@ exp = cal_fits[0]
 
 @eqx.filter_jit
 # @eqx.filter_value_and_grad
-@eqx.filter_grad
+# @eqx.filter_grad
 def model_it(model, exposure):
     print("Compiling model...")
-    return amigo.fitting.loss_fn(model, exposure, {})[0]
-    # return exposure(model).sum()
+    # return amigo.fitting.loss_fn(model, exposure, {})[0]
+    return exposure(model).sum()
     # return exposure.model_psf(model)
 
 
@@ -115,13 +115,13 @@ print(f"JAX version {jax.__version__}")
 
 start = time()
 model_it(model, exp).block_until_ready()
-print(f"Model compiled in {time() - start:.2f} seconds")
+print(f"Model compiled in {time() - start:.4e} seconds")
 
 
-with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
-    print("Timing model...")
-    for i in range(5):
-        start = time()
-        model_it(model, exp).block_until_ready()
-        end = time()
-        print(f"Model {i} took {end - start:.2f} seconds")
+# with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
+print("Timing model...")
+for i in range(5):
+    start = time()
+    model_it(model, exp).block_until_ready()
+    end = time()
+    print(f"Model {i} took {end - start:.4e} seconds")
