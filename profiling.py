@@ -118,10 +118,10 @@ model_it(model, exp).block_until_ready()
 print(f"Model compiled in {time() - start:.4e} seconds")
 
 
-# with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
-print("Timing model...")
-for i in range(5):
-    start = time()
-    model_it(model, exp).block_until_ready()
-    end = time()
-    print(f"Model {i} took {end - start:.4e} seconds")
+with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
+    print("Timing model...")
+    for i in range(5):
+        start = time()
+        model_it(model, exp).block_until_ready()
+        end = time()
+        print(f"Model {i} took {end - start:.4e} seconds")
