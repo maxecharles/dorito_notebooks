@@ -61,8 +61,8 @@ output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 EXP_TYPE = "NIS_AMI"
 FILTERS = [
     "F480M",
-    "F430M",
-    "F380M",
+    # "F430M",
+    # "F380M",
     # "F277W",
 ]
 
@@ -107,8 +107,8 @@ for folder in os.listdir(output_path):
 # datetime_str = f"{i}_groups"
 print(datetime_str)
 
-output_path = os.path.join(output_path, batch_idx) + "_25g/"
-# output_path = os.path.join(output_path, datetime_str) + "/"
+# output_path = os.path.join(output_path, batch_idx) + "_25g/"
+output_path = os.path.join(output_path, datetime_str) + "/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
@@ -157,7 +157,7 @@ for file in files:
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
 
-dorito.misc.truncate_files(sci_files, 25)
+dorito.misc.truncate_files(sci_files, 80)
 
 
 # %%
@@ -178,7 +178,7 @@ for file in files:
 
 
 # %%
-source_size = 281  # pixels
+source_size = 91  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 sci_fits = [dorito.model_fits.MCAFit(file, use_cov=True) for file in sci_files]
@@ -247,7 +247,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 2000
+n_epoch = 10000
 
 config = {
     "positions": sgd(3e-3, 0),
@@ -347,7 +347,7 @@ for exp in fits:
 
     fig.colorbar(c0)
 
-    ax.set(title=f"PDS70 - {exp.filter} - {mes[int(batch_idx)]}")  #   xticks=ticks, yticks=ticks)
+    # ax.set(title=f"PDS70 - {exp.filter} - {mes[int(batch_idx)]}")  #   xticks=ticks, yticks=ticks)
     ax.scatter([0], [0], marker="*", color="white", s=10)
 
     seps = 1e-3 * np.array([150.5, 218.4])
@@ -369,6 +369,7 @@ for exp in fits:
     plt.tight_layout()
     # plt.show()
     plt.savefig(output_path + f"dist_{exp.key}.png", dpi=300)
+    plt.close()
 
 amigo.plotting.plot_losses(
     result.losses[0], start=int(n_epoch * 0.75), save_path=output_path

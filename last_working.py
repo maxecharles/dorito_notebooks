@@ -192,8 +192,8 @@ cal_fits = [amigo.model_fits.PointFit(file, use_cov=True) for file in cal_files]
 # fits = [fit for fit in sci_fits if fit.dither == "1"] + [
 #     fit for fit in cal_fits if fit.dither == "1"
 # ]
-# fits = sci_fits[0:1] + cal_fits[0:1]
-fits = sci_fits + cal_fits
+fits = sci_fits[0:1] + cal_fits[0:1]
+# fits = sci_fits + cal_fits
 
 # building the model
 model = dorito.models.ResolvedAmigoModel(
@@ -362,6 +362,7 @@ for exp in fits:
     plt.tight_layout()
     # plt.show()
     plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
+    plt.close()
 
 amigo.plotting.plot_losses(
     result.losses[0], start=int(n_epoch * 0.75), save_path=output_path

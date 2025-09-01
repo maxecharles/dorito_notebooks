@@ -14,6 +14,7 @@ import dorito
 
 # other helpful libraries
 import os
+import sys
 
 # matplotlib ecosystem
 import matplotlib.pyplot as plt
@@ -51,12 +52,19 @@ cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
+# FILTERS = [
+#     "F480M",
+#     "F430M",
+#     "F380M",
+# ]
 FILTERS = [
-    "F480M",
-    # "F430M",
-    # "F380M",
-    # "F277W",
+    ["F480M"],
+    ["F430M"],
+    ["F380M"],
 ]
+
+idx = int(sys.argv[1])
+FILTERS = FILTERS[idx]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -207,8 +215,8 @@ class YearPointFit(amigo.model_fits.PointFit):
         )
 
 
-class YearResolvedFit(DynamicResolvedFit):
-# class YearResolvedFit(dorito.model_fits.ResolvedFit):
+# class YearResolvedFit(DynamicResolvedFit):
+class YearResolvedFit(dorito.model_fits.ResolvedFit):
 
     date: str  # isot
     year: str
@@ -224,6 +232,8 @@ class YearResolvedFit(DynamicResolvedFit):
         match param:
             case "aberrations":
                 return "_".join([self.year, self.filter])
+            # case "log_dist":
+            #     return "_".join([self.year, self.filter])
 
         return super().get_key(param)
 
@@ -240,7 +250,7 @@ class YearResolvedFit(DynamicResolvedFit):
         )
 
 # %%
-source_size = 131  # pixels
+source_size = 161  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 sci_fits = [YearResolvedFit(file, use_cov=True) for file in sci_files]
@@ -306,7 +316,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 2000
+n_epoch = 6000
 
 config = {
     "positions": sgd(5e-2, 0),
@@ -363,15 +373,11 @@ result = trainer.train(
     args=args,
 )
 
-# %%
-# np.save("good_ngc.npy", dist)
 
 # %%
 np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
 
-# params = np.load(output_path + "allgoodrun_params.npy", allow_pickle=True).item()
-# result_model = model.set("params", params)
 
 # %%
 from dLux import utils as dlu
@@ -404,11 +410,12 @@ for exp in fits:
 
     fig.colorbar(c0)
 
-    ax.set(title=f"NGC1068 - {exp.key}")  #   xticks=ticks, yticks=ticks)
+    ax.set(title=f"NGC1068 - {exp.filter}")  #   xticks=ticks, yticks=ticks)
 
     plt.tight_layout()
     # plt.show()
     plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
+    plt.close()
 
 for exp in fits:
     exp.print_summary()
