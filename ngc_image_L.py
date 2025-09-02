@@ -14,6 +14,7 @@ import dorito
 
 # other helpful libraries
 import os
+import sys
 
 # matplotlib ecosystem
 import matplotlib.pyplot as plt
@@ -42,8 +43,8 @@ elif gethostname() == "AJQ4YHQH9TX":
 else:
     path = "/fred/oz440/max/"
 
-source_name = "IO"
-data_path = os.path.join(path, f"data/JWST/{source_name}/calslope/")
+source_name = "NGC1068"
+data_path = os.path.join(path, f"data/JWST/{source_name}/new_calslope/new_calslope/")
 uncal_path = os.path.join(path, f"data/JWST/{source_name}/uncal/")
 amigo_cache = os.path.join(path, "data/amigo_files/")
 
@@ -51,12 +52,24 @@ cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
+# FILTERS = [
+#     "F480M",
+#     # "F430M",
+#     # "F380M",
+# ]
 FILTERS = [
-    "F480M",
-    "F430M",
-    "F380M",
+    ["F480M"],
+    ["F430M"],
+    ["F380M"],
 ]
 
+idx = int(sys.argv[1])
+setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), 
+         (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9),
+         (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9)]
+
+i, j = setup[idx]
+FILTERS = FILTERS[i]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -68,7 +81,6 @@ file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
 )
 
 from datetime import datetime
-
 form = "%d-%m-%y_%H-%M-%S.%f"
 now = datetime.now()
 datetime_str = now.strftime(form)
@@ -86,7 +98,7 @@ for folder in os.listdir(output_path):
 
         try:
             then = datetime.strptime(folder, form)
-
+                
             # remove empty folder if it is older than 1 hour
             if (now - then).seconds > 3600:  # 1 hour
                 print(f"Removing empty folder: {folder_dir}")
@@ -99,7 +111,9 @@ for folder in os.listdir(output_path):
 # datetime_str = f"{i}_groups"
 print(datetime_str)
 
-output_path = os.path.join(output_path, datetime_str) + "/"
+job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+
+output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
@@ -136,12 +150,11 @@ for file in files:
     if not bool(file[0].header["IS_PSF"]):
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
-        file[0].header["TARGPROP"] = "HD 228337"
         cal_files.append(file)
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
 
-dorito.misc.truncate_files(sci_files, 18)
+dorito.misc.truncate_files(sci_files, 4)
 
 # %%
 from astropy.time import Time
@@ -162,7 +175,6 @@ for file in files:
 # %% [markdown]
 # ## Building the model
 
-
 # %%
 class DynamicResolvedFit(dorito.model_fits.ResolvedFit):
     """
@@ -178,15 +190,85 @@ class DynamicResolvedFit(dorito.model_fits.ResolvedFit):
         return super().get_key(param)
 
 
+class YearPointFit(amigo.model_fits.PointFit):
+    date: str  # isot
+    year: str
+
+    def __init__(self, file, use_cov=True):
+        expmid = Time(file[0].header["EXPMID"], format="mjd")
+        self.date = str(expmid.isot)
+        self.year = f"{expmid.ymdhms[0]:04d}"
+        super().__init__(file, use_cov=use_cov)
+
+    def get_key(self, param):
+        # Return the per exposure key if not joint fitting
+        match param:
+            case "aberrations":
+                return "_".join([self.year, self.filter])
+
+        return super().get_key(param)
+
+    def print_summary(self):
+        print(
+            # f"File {self.key}\n"
+            f"Star {self.star}\n"
+            f"Filter {self.filter}\n"
+            f"Parang {self.parang:.2f} deg\n"
+            f"Dither {self.dither}\n"
+            f"Date {self.date}\n"
+            # f"nints {self.nints}\n"
+            # f"ngroups {len(self.slopes)+1}\n"
+        )
+
+
+# class YearResolvedFit(DynamicResolvedFit):
+class YearResolvedFit(dorito.model_fits.ResolvedFit):
+
+    date: str  # isot
+    year: str
+
+    def __init__(self, file, use_cov=True):
+        expmid = Time(file[0].header["EXPMID"], format="mjd")
+        self.date = str(expmid.isot)
+        self.year = f"{expmid.ymdhms[0]:04d}"
+        super().__init__(file, use_cov=use_cov)
+
+    def get_key(self, param):
+        # Return the per exposure key if not joint fitting
+        match param:
+            case "aberrations":
+                return "_".join([self.year, self.filter])
+            # case "log_dist":
+            #     return "_".join([self.year, self.filter])
+
+        return super().get_key(param)
+
+    def print_summary(self):
+        print(
+            # f"File {self.key}\n"
+            f"Star {self.star}\n"
+            f"Filter {self.filter}\n"
+            f"Parang {self.parang:.2f} deg\n"
+            f"Dither {self.dither}\n"
+            f"Date {self.date}\n"
+            # f"nints {self.nints}\n"
+            # f"ngroups {len(self.slopes)+1}\n"
+        )
+
 # %%
 source_size = 161  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
-sci_fits = [DynamicResolvedFit(file, use_cov=True) for file in sci_files]
-cal_fits = [amigo.model_fits.PointFit(file, use_cov=False) for file in cal_files]
+sci_fits = [YearResolvedFit(file, use_cov=True) for file in sci_files]
+cal_fits = [YearPointFit(file, use_cov=True) for file in cal_files]
 
 # I only want to use the calibrator in the same primary dither position
-fits = sci_fits + cal_fits[0:1]
+# fits = cal_fits[0:1]
+# fits = [fit for fit in sci_fits if fit.dither == "1"] + [
+#     fit for fit in cal_fits if fit.dither == "1"
+# ]
+# fits = sci_fits[0:1] + cal_fits[0:1]
+fits = sci_fits + cal_fits
 
 # building the model
 model = dorito.models.ResolvedAmigoModel(
@@ -207,8 +289,7 @@ for exp in fits:
     amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
 
 import shutil
-
-shutil.copy(__file__, output_path + "/script.py")
+shutil.copy(__file__, output_path + '/script.py') 
 
 # %% [markdown]
 # ## Optimisation Stage 1: Gradient Descent
@@ -241,14 +322,16 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 2000
+n_epoch = 6000
 
 config = {
-    "positions": sgd(4e-2, 0),
-    "fluxes": sgd(5e-2, 0),
-    "aberrations": sgd(5e0, 4),
-    "spectra": sgd(1e-1, 10),
-    "log_dist": adam(5e-2, 20),  # , (10, 0.25), b1=0.7),
+    "positions": sgd(5e-2, 0),
+    "fluxes": sgd(5e-2, 5),
+    "aberrations": sgd(2e-1, 10),
+    "log_dist": adam(2e-2, 10, (1000, 0.75)),
+    "spectra": sgd(2e-1, 50),
+    # "amplitudes": sgd(5e-1, 50),
+    # "phases": sgd(5e-1, 50),
 }
 
 
@@ -263,14 +346,19 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
+mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
 args = {
     "reg_dict": {
-        # "ME": (3e1, dorito.stats.ME),
+        # "L1": dorito.stats.L1_on_wavelets,
+        # "L1": L1_REG,
+        # "QV": dorito.stats.TSV,
+        # 1e4: dorito.stats.TV,
+        "ME": (mes[int(j)], dorito.stats.ME),
     }
 }
 
 trainer = amigo.fitting.Trainer(
-    # loss_fn=dorito.stats.ramp_regularised_loss_fn,
+    loss_fn=dorito.stats.ramp_regularised_loss_fn,
     norm_fn=norm_fn,
     grad_fn=grad_fn,
     cache=os.path.join(amigo_cache, "fishers/"),
@@ -307,7 +395,6 @@ from dLux import utils as dlu
 
 optics_diameter = 6.603464  # JWST aperture diameter in meters
 
-
 def eff_wavel(model, filt):
     wavels, weights = model.filters[filt]
     return np.dot(wavels, weights)
@@ -334,7 +421,7 @@ for exp in fits:
 
     fig.colorbar(c0)
 
-    ax.set(title=f"Io - {exp.filter}")  #   xticks=ticks, yticks=ticks)
+    ax.set(title=f"NGC1068 - {exp.filter}")  #   xticks=ticks, yticks=ticks)
 
     plt.tight_layout()
     # plt.show()

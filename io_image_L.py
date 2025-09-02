@@ -14,6 +14,7 @@ import dorito
 
 # other helpful libraries
 import os
+import sys
 
 # matplotlib ecosystem
 import matplotlib.pyplot as plt
@@ -99,7 +100,11 @@ for folder in os.listdir(output_path):
 # datetime_str = f"{i}_groups"
 print(datetime_str)
 
-output_path = os.path.join(output_path, datetime_str) + "/"
+batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+
+job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+
+output_path = os.path.join(output_path, job_id) + f"/{batch_idx}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
@@ -136,7 +141,7 @@ for file in files:
     if not bool(file[0].header["IS_PSF"]):
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
-        file[0].header["TARGPROP"] = "HD 228337"
+        file[0].header["TARGPROP"] = "HD 2236"
         cal_files.append(file)
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
@@ -241,7 +246,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 2000
+n_epoch = 5000
 
 config = {
     "positions": sgd(4e-2, 0),
@@ -262,15 +267,17 @@ def grad_fn(model, grads, args):
         grads = grads.multiply(spc_keys, 0.3)
     return grads, args
 
-
+tsvs = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
+# mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
 args = {
     "reg_dict": {
-        # "ME": (3e1, dorito.stats.ME),
+        "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
+        # "ME": (mes[int(batch_idx)], dorito.stats.ME),
     }
 }
 
 trainer = amigo.fitting.Trainer(
-    # loss_fn=dorito.stats.ramp_regularised_loss_fn,
+    loss_fn=dorito.stats.ramp_regularised_loss_fn,
     norm_fn=norm_fn,
     grad_fn=grad_fn,
     cache=os.path.join(amigo_cache, "fishers/"),
@@ -278,7 +285,6 @@ trainer = amigo.fitting.Trainer(
 
 print("Populating fishers...")
 trainer = trainer.populate_fishers(
-    # model.set("detector.ramp.bleed", False).set("params", params),
     model,
     fits,
     hessians=load_dict(cache + "jacobians.npy")["hessian"],
@@ -300,6 +306,9 @@ result = trainer.train(
 # %%
 np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
+
+balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
+np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
 
 
 # %%
