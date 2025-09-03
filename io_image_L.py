@@ -133,10 +133,10 @@ for file in files:
     file["BADPIX"].data[28, 18] = 1
     file["BADPIX"].data[32, 10] = 1
 
-    file["BADPIX"].data[:, :3] = 1
-    file["BADPIX"].data[:, -3:] = 1
-    file["BADPIX"].data[:3, :] = 1
-    file["BADPIX"].data[-3:, :] = 1
+    file["BADPIX"].data[:, :10] = 1
+    file["BADPIX"].data[:, -10:] = 1
+    file["BADPIX"].data[:10, :] = 1
+    file["BADPIX"].data[-10:, :] = 1
 
     if not bool(file[0].header["IS_PSF"]):
         sci_files.append(file)
@@ -184,7 +184,7 @@ class DynamicResolvedFit(dorito.model_fits.ResolvedFit):
 
 
 # %%
-source_size = 161  # pixels
+source_size = 131  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 sci_fits = [DynamicResolvedFit(file, use_cov=True) for file in sci_files]
@@ -310,6 +310,7 @@ result_model = result.model
 balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
 np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
 
+np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
 
 # %%
 from dLux import utils as dlu

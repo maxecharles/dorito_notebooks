@@ -54,8 +54,8 @@ output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 EXP_TYPE = "NIS_AMI"
 FILTERS = [
     "F480M",
-    "F430M",
-    "F380M",
+    # "F430M",
+    # "F380M",
 ]
 # FILTERS = [
 #     ["F480M"],
@@ -249,6 +249,8 @@ def norm_fn(model_params, args):
             lambda x: np.clip(x, a_min=-0.8, a_max=0.8), params["spectra"]
         )
         params["spectra"] = spectra
+    else:
+        raise ValueError("No spectra in params")
 
     return model_params.set("params", params), args
 
@@ -256,7 +258,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 500
+n_epoch = 1000
 
 config = {
     "positions": sgd(2e-1, 0),
@@ -276,7 +278,7 @@ def grad_fn(model, grads, args):
     # Reduce spectra gradients for the science exposures
     # TODO don't do this for joint fit
     if "positions" in config.keys():
-        grads = grads.multiply(spc_keys, 0.0)
+        grads = grads.multiply(pos_keys, 0.0)
 
     return grads, args
 
@@ -319,6 +321,7 @@ result = trainer.train(
 np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
 
+np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
 
 # %%
 from dLux import utils as dlu

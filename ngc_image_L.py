@@ -346,14 +346,12 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
-mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
+tsvs = [1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7]
+# mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
 args = {
     "reg_dict": {
-        # "L1": dorito.stats.L1_on_wavelets,
-        # "L1": L1_REG,
-        # "QV": dorito.stats.TSV,
-        # 1e4: dorito.stats.TV,
-        "ME": (mes[int(j)], dorito.stats.ME),
+        # "ME": (mes[int(j)], dorito.stats.ME),
+        "TSV": (tsvs[int(j)], dorito.stats.TSV),
     }
 }
 
@@ -388,6 +386,11 @@ result = trainer.train(
 # %%
 np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
+
+balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
+np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
+
+np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
 
 
 # %%
