@@ -189,23 +189,24 @@ eigvals, eigvecs = np.linalg.eigh(basis)
 eigvals, eigvecs = eigvals.real[::-1], eigvecs.real[..., ::-1]
 basis_dict = {"eigvals": eigvals, "eigvecs": eigvecs}
 
-n_terms = [
-    1875,
-    100,
-    400,
-    700,
-    1000,
-    1300,
-    1600,
-    2000,
-    2500,
-    3000,
-    3500,
-    4000,
-    4500,
-    5000,
-    len(eigvals),
-][int(batch_idx)]
+# n_terms = [
+#     1875,
+#     100,
+#     400,
+#     700,
+#     1000,
+#     1300,
+#     1600,
+#     2000,
+#     2500,
+#     3000,
+#     3500,
+#     4000,
+#     4500,
+#     5000,
+#     len(eigvals),
+# ][int(batch_idx)]
+n_terms = 1875
 print(f"Using {n_terms} basis terms")
 
 
@@ -363,11 +364,11 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
-# tsvs = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
+tsvs = [1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5]
 # mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
 args = {
     "reg_dict": {
-        # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
+        "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
         # "ME": (mes[int(batch_idx)], dorito.stats.ME),
     }
 }
