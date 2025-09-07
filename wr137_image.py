@@ -258,7 +258,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 1000
+n_epoch = 5000
 
 config = {
     "positions": sgd(2e-1, 0),
@@ -321,7 +321,7 @@ result = trainer.train(
 np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
 
-np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
+# np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
 
 # %%
 from dLux import utils as dlu

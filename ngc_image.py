@@ -378,7 +378,7 @@ result = trainer.train(
 np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
 
-np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
+# np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
 
 # %%
 from dLux import utils as dlu

@@ -390,7 +390,7 @@ result_model = result.model
 balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
 np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
 
-np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
+# np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
 
 
 # %%
