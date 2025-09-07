@@ -258,7 +258,7 @@ abbs = np.load("files/abers.npy", allow_pickle=True).item()
 state = load_dict(cache + "calibration.npy")
 state["aberrations"]["F430M"] = abbs["01373_F430M"]
 
-basis = dorito.models.ImageBasis(basis_dict, n_basis=1875)
+basis = dorito.models.ImageBasis(basis_dict, n_basis=n_terms)
 
 # building the model
 model = dorito.models.TransformedResolvedModel(
@@ -343,7 +343,7 @@ def loss_fn(model, exp, args={"reg_dict": {}}):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 5000
+n_epoch = 10000
 
 config = {
     "positions": sgd(5e-1, 5, (50, 0.0)),
@@ -408,7 +408,7 @@ result_model = result.model
 balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
 np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
 
-np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
+# np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
 
 # %%
 from dLux import utils as dlu
@@ -434,7 +434,7 @@ for exp in fits:
         pixel_scale=model.psf_pixel_scale / model.oversample,
         cmap="inferno",
         # roll_angle_degrees=-exp.parang,
-        norm=mpl.colors.LogNorm(vmin=1e-5),
+        # norm=mpl.colors.LogNorm(vmin=1e-5),
         # norm=mpl.colors.PowerNorm(0.3, vmax=0.3),
         diff_lim=dlu.rad2arcsec(eff_wavel(model, exp.filter) / optics_diameter),
         scale=1,
@@ -448,6 +448,8 @@ for exp in fits:
     # plt.show()
     plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
     plt.close()
+
+    np.save(output_path + f"{exp.key}_dist.npy", dist, allow_pickle=True)
 
 for exp in fits:
     exp.print_summary()
