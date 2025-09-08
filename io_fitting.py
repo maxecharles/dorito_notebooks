@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ehtplot
 import scienceplots
-import cmasher as cmr
+# import cmasher as cmr
 
 import sys
 
@@ -55,14 +55,16 @@ coolwarm.set_bad("k", 0.5)
 from socket import gethostname
 
 if gethostname() == "glinton":
-    morgana = "/media/morgana1/"
+    path = "/media/morgana1/snert/max/"
+elif gethostname() == "AJQ4YHQH9TX":
+    path = "/Volumes/morgana1/snert/max/"
 else:
-    morgana = "/Volumes/morgana1/"
+    path = "/fred/oz440/max/"
 
-source_name = "IO"
-data_path = os.path.join(morgana, f"snert/max/data/JWST/{source_name}/calslope/")
-uncal_path = os.path.join(morgana, f"snert/max/data/JWST/{source_name}/uncal/")
-amigo_cache = os.path.join(morgana, "snert/max/data/amigo_files/")
+source_name = "NGC1068"
+data_path = os.path.join(path, f"data/JWST/{source_name}/new_calslope/new_calslope/")
+uncal_path = os.path.join(path, f"data/JWST/{source_name}/uncal/")
+amigo_cache = os.path.join(path, "data/amigo_files/")
 
 cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
@@ -150,40 +152,40 @@ for file in files:
         f'{h["TARGPROP"]} {h["FILTER"]}, Dither {h["PATT_NUM"]}/{h["NUMDTHPT"]}, Roll {h["ROLL_REF"]:.1f}deg, {h["XPOSURE"] / 60:.1f}min, {t.iso}'
     )
 
-# %%
-from scipy.ndimage import binary_dilation
+# # %%
+# from scipy.ndimage import binary_dilation
 
 
-def get_depth(exp, threshold=30_000):
-    depth_cube = []
-    for group in exp.ramp[1:]:
-        group = np.where(exp.badpix, np.nan, group)
-        sat_badpix = binary_dilation(group > threshold)
-        depth_cube.append(sat_badpix)
+# def get_depth(exp, threshold=30_000):
+#     depth_cube = []
+#     for group in exp.ramp[1:]:
+#         group = np.where(exp.badpix, np.nan, group)
+#         sat_badpix = binary_dilation(group > threshold)
+#         depth_cube.append(sat_badpix)
 
-    return (exp.ngroups - 1) - np.array(depth_cube, dtype=int).sum(0)
-
-
-def fudge_cov_pp(cov, d, bajillion):
-    cov = cov.at[d:, :].set(0.0)
-    cov = cov.at[:, d:].set(0.0)
-    cov = cov.at[d:, d:].set(bajillion * np.eye((cov.shape[0] - d)))
-    return cov
+#     return (exp.ngroups - 1) - np.array(depth_cube, dtype=int).sum(0)
 
 
-def fudge_cov(cov, depth, bajillion=1e6):
-    """Modifies a (48, 48, 80, 80) covariance array in-place,
-    using per-pixel depths (80, 80)"""
-    h, w = depth.shape
-    final_cov = np.empty_like(cov)
+# def fudge_cov_pp(cov, d, bajillion):
+#     cov = cov.at[d:, :].set(0.0)
+#     cov = cov.at[:, d:].set(0.0)
+#     cov = cov.at[d:, d:].set(bajillion * np.eye((cov.shape[0] - d)))
+#     return cov
 
-    for i in range(h):
-        for j in range(w):
-            d = int(depth[i, j])
-            this_cov = fudge_cov_pp(cov[..., i, j], d, bajillion)
-            final_cov = final_cov.at[..., i, j].set(this_cov)
 
-    return final_cov
+# def fudge_cov(cov, depth, bajillion=1e6):
+#     """Modifies a (48, 48, 80, 80) covariance array in-place,
+#     using per-pixel depths (80, 80)"""
+#     h, w = depth.shape
+#     final_cov = np.empty_like(cov)
+
+#     for i in range(h):
+#         for j in range(w):
+#             d = int(depth[i, j])
+#             this_cov = fudge_cov_pp(cov[..., i, j], d, bajillion)
+#             final_cov = final_cov.at[..., i, j].set(this_cov)
+
+#     return final_cov
 
 
 # %%
@@ -223,77 +225,77 @@ model = amigo.core_models.AmigoModel(
 
 
 # %%
-from dLux import utils as dlu
-from scipy.interpolate import griddata
-import numpy as onp
-import jax.numpy as np
+# from dLux import utils as dlu
+# from scipy.interpolate import griddata
+# import numpy as onp
+# import jax.numpy as np
 
 
-def interpolate_nans_2d_jnp(array, method="linear"):
+# def interpolate_nans_2d_jnp(array, method="linear"):
 
-    array = onp.array(array)
-    x, y = onp.indices(array.shape)
-    valid_mask = ~onp.isnan(array)
+#     array = onp.array(array)
+#     x, y = onp.indices(array.shape)
+#     valid_mask = ~onp.isnan(array)
 
-    filled = array.copy()
-    filled[~valid_mask] = griddata(
-        (x[valid_mask], y[valid_mask]),
-        array[valid_mask],
-        (x[~valid_mask], y[~valid_mask]),
-        method=method,
-    )
+#     filled = array.copy()
+#     filled[~valid_mask] = griddata(
+#         (x[valid_mask], y[valid_mask]),
+#         array[valid_mask],
+#         (x[~valid_mask], y[~valid_mask]),
+#         method=method,
+#     )
 
-    return np.array(filled)
+#     return np.array(filled)
 
 
-optics_diameter = 6.603464  # JWST aperture diameter in meters
-otf_coords = dlu.pixel_coords(51, 2 * optics_diameter)
-otf = np.load("files/otf_support.npy")
+# optics_diameter = 6.603464  # JWST aperture diameter in meters
+# otf_coords = dlu.pixel_coords(51, 2 * optics_diameter)
+# otf = np.load("files/otf_support.npy")
 
-for exp in exposures:
-    if exp.calibrator:
-        continue
+# for exp in exposures:
+#     if exp.calibrator:
+#         continue
 
-    filt = model.filters[exp.filter]
-    wavel = np.dot(filt[0], filt[1])
+#     filt = model.filters[exp.filter]
+#     wavel = np.dot(filt[0], filt[1])
 
-    interferogram = np.where(~exp.badpix, exp.slopes[0], np.nan)
-    interferogram = interpolate_nans_2d_jnp(interferogram, method="linear")
-    interferogram = np.where(~np.isnan(interferogram), interferogram, 0.0)
-    # interferogram /= np.nanmax(interferogram)
+#     interferogram = np.where(~exp.badpix, exp.slopes[0], np.nan)
+#     interferogram = interpolate_nans_2d_jnp(interferogram, method="linear")
+#     interferogram = np.where(~np.isnan(interferogram), interferogram, 0.0)
+#     # interferogram /= np.nanmax(interferogram)
 
-    mft = dlu.MFT(
-        phasor=interferogram,
-        wavelength=wavel,
-        pixel_scale_in=dlu.arcsec2rad(model.psf_pixel_scale),
-        npixels_out=otf_coords.shape[-1],
-        pixel_scale_out=np.diff(otf_coords[0, 0]).mean(),
-        inverse=True,
-    )
+#     mft = dlu.MFT(
+#         phasor=interferogram,
+#         wavelength=wavel,
+#         pixel_scale_in=dlu.arcsec2rad(model.psf_pixel_scale),
+#         npixels_out=otf_coords.shape[-1],
+#         pixel_scale_out=np.diff(otf_coords[0, 0]).mean(),
+#         inverse=True,
+#     )
 
-    mft /= np.nanmax(np.abs(mft))
-    log_vis = np.log(mft)
+#     mft /= np.nanmax(np.abs(mft))
+#     log_vis = np.log(mft)
 
-    log_amp = log_vis.real.flatten()[: log_vis.size // 2]
-    log_phase = log_vis.imag.flatten()[: log_vis.size // 2]
+#     log_amp = log_vis.real.flatten()[: log_vis.size // 2]
+#     log_phase = log_vis.imag.flatten()[: log_vis.size // 2]
 
-    lat_amp, lat_phase = model.vis_model.to_latent(log_amp, log_phase, exp.filter)
+#     lat_amp, lat_phase = model.vis_model.to_latent(log_amp, log_phase, exp.filter)
 
-    print(f"Filter: {exp.filter}, Wavelength: {1e6*wavel:.3f}um")
+#     print(f"Filter: {exp.filter}, Wavelength: {1e6*wavel:.3f}um")
 
-    model.params["amplitudes"][exp.get_key("amplitudes")] = lat_amp
-    model.params["phases"][exp.get_key("phases")] = lat_phase
+#     model.params["amplitudes"][exp.get_key("amplitudes")] = lat_amp
+#     model.params["phases"][exp.get_key("phases")] = lat_phase
 
 # %%
 print("Training...")
-n_epoch = 1600
+n_epoch = 10000
 
 config = {
     # # Init'ing from MFT
     "positions": sgd(4e-2, 0, (50, 0.0)),
     "fluxes": sgd(1e-2, 0),
     "aberrations": sgd(5e-0, 4),
-    "spectra": sgd(1.5e-1, 10),
+    "spectra": sgd(1.5e-1, 1000),
     "amplitudes": sgd(2e-1, 25),
     "phases": sgd(2e-1, 25),
 }

@@ -38,9 +38,11 @@ from socket import gethostname
 
 if gethostname() == "glinton":
     path = "/media/morgana1/snert/max/"
+    abers_dir = "files/abers.npy"
 elif gethostname() == "AJQ4YHQH9TX":
     path = "/Volumes/morgana1/snert/max/"
 else:
+    abers_dir = "/fred/oz440/max/code/dorito_notebooks/files/abers.npy"
     path = "/fred/oz440/max/"
 
 source_name = "IO"
@@ -74,28 +76,28 @@ form = "%d-%m-%y_%H-%M-%S.%f"
 now = datetime.now()
 datetime_str = now.strftime(form)
 
-# clear directory of empty folders
-for folder in os.listdir(output_path):
-    folder_dir = os.path.join(output_path, folder)
+# # clear directory of empty folders
+# for folder in os.listdir(output_path):
+#     folder_dir = os.path.join(output_path, folder)
 
-    # skip if not a directory
-    if not os.path.isdir(folder_dir):
-        continue
+#     # skip if not a directory
+#     if not os.path.isdir(folder_dir):
+#         continue
 
-    # if the folder is empty
-    if len(os.listdir(folder_dir)) == 0:
+#     # if the folder is empty
+#     if len(os.listdir(folder_dir)) == 0:
 
-        try:
-            then = datetime.strptime(folder, form)
+#         try:
+#             then = datetime.strptime(folder, form)
 
-            # remove empty folder if it is older than 1 hour
-            if (now - then).seconds > 3600:  # 1 hour
-                print(f"Removing empty folder: {folder_dir}")
-                os.rmdir(folder_dir)
-        except ValueError:
-            # if the folder name is not in the correct format, skip it
-            print(f"Deleting folder: {folder_dir} (not in correct format)")
-            os.rmdir(folder_dir)
+#             # remove empty folder if it is older than 1 hour
+#             if (now - then).seconds > 3600:  # 1 hour
+#                 print(f"Removing empty folder: {folder_dir}")
+#                 os.rmdir(folder_dir)
+#         except ValueError:
+#             # if the folder name is not in the correct format, skip it
+#             print(f"Deleting folder: {folder_dir} (not in correct format)")
+#             os.rmdir(folder_dir)
 
 # datetime_str = f"{i}_groups"
 print(datetime_str)
@@ -141,6 +143,7 @@ for file in files:
     file["BADPIX"].data[-10:, :] = 1
 
     if not bool(file[0].header["IS_PSF"]):
+        file["BADPIX"].data[43, 45] = 1
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 2236"
@@ -170,6 +173,7 @@ for file in files:
 # ## Building the model
 from tqdm import tqdm
 from scipy.ndimage import gaussian_filter
+from photutils.psf.matching import TukeyWindow
 import numpy as onp
 
 source_size = 101  # pixels
@@ -178,11 +182,15 @@ npix = source_size
 pixel_grid = onp.zeros((npix, npix))
 basis = onp.zeros((npix * npix, npix * npix))
 
+mask = TukeyWindow(alpha=0.0)((npix, npix))
+
+
 for j in tqdm(range(npix)):
     for i in range(npix):
         pixel_grid = 0 * onp.ones_like(pixel_grid)
         pixel_grid[j, i] = 1
-        convolved = gaussian_filter(pixel_grid, sigma=3.0)  # * mask
+        convolved = gaussian_filter(pixel_grid, sigma=1.0) * mask
+        # convolved = pixel_grid
         basis[:, j * npix + i] = convolved.flatten()
 
 eigvals, eigvecs = np.linalg.eigh(basis)
@@ -190,13 +198,13 @@ eigvals, eigvecs = eigvals.real[::-1], eigvecs.real[..., ::-1]
 basis_dict = {"eigvals": eigvals, "eigvecs": eigvecs}
 
 # n_terms = [
-#     1875,
 #     100,
 #     400,
 #     700,
 #     1000,
 #     1300,
 #     1600,
+#     1800,
 #     2000,
 #     2500,
 #     3000,
@@ -206,7 +214,7 @@ basis_dict = {"eigvals": eigvals, "eigvecs": eigvecs}
 #     5000,
 #     len(eigvals),
 # ][int(batch_idx)]
-n_terms = 1875
+n_terms = 1600
 print(f"Using {n_terms} basis terms")
 
 
@@ -255,7 +263,7 @@ fits = sci_fits + cal_fits[0:1]
 init_dist = np.ones((source_size, source_size)) / (source_size**2)
 init_dist = gaussian_2d(init_dist.shape, sigma=15)
 
-abbs = np.load("files/abers.npy", allow_pickle=True).item()
+abbs = np.load(abers_dir, allow_pickle=True).item()
 state = load_dict(cache + "calibration.npy")
 state["aberrations"]["F430M"] = abbs["01373_F430M"]
 
@@ -279,10 +287,10 @@ model = dorito.models.TransformedResolvedModel(
     rotate=False,
 )
 
-# %%
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
+# # %%
+# for exp in fits:
+#     exp.print_summary()
+#     amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
 
 import shutil
 
@@ -329,14 +337,15 @@ def loss_fn(model, exp, args={"reg_dict": {}}):
     # regular likelihood term
     likelihood = -np.nanmean(exp.mv_zscore(model))
 
-    dist = model(exp)
-
     # prior on the sum
+    dist = model(exp)
     # total_sum = dist.sum()
     # prior = -jax.scipy.stats.norm.logpdf(total_sum, loc=1.0, scale=0.00001)
-
     prior = 0
     prior += loLU(-dist).sum()
+    prior += (
+        dorito.stats.apply_regularisers(model, exp, args) if not exp.calibrator else 0.0
+    )
     # prior = 1e6 * jax.nn.relu(-dist).sum()
     return likelihood + prior, ()
 
@@ -344,12 +353,13 @@ def loss_fn(model, exp, args={"reg_dict": {}}):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 10000
+n_epoch = 12000
 
 config = {
     "positions": sgd(5e-1, 5, (50, 0.0)),
     "fluxes": sgd(2e-2, 0),
     "log_dist": adam(2e-5, 15),
+    "spectra": sgd(5e-2, 500),
 }
 
 
@@ -364,11 +374,13 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
-tsvs = [1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5]
+# tsvs = [0., 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13]
+tvs = [0., 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13]
 # mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
 args = {
     "reg_dict": {
-        "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
+        "TV": (tvs[int(batch_idx)], dorito.stats.TV),
+        # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
         # "ME": (mes[int(batch_idx)], dorito.stats.ME),
     }
 }
@@ -422,7 +434,7 @@ def eff_wavel(model, filt):
     return np.dot(wavels, weights)
 
 
-for exp in fits:
+for exp in fits[0:1]:
 
     if exp.calibrator:
         continue
@@ -450,9 +462,9 @@ for exp in fits:
     plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
     plt.close()
 
-    np.save(output_path + f"{exp.key}_dist.npy", dist, allow_pickle=True)
+    # np.save(output_path + f"{exp.key}_dist.npy", dist, allow_pickle=True)
 
-for exp in fits:
+for exp in fits[0:1]:
     exp.print_summary()
     amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
 

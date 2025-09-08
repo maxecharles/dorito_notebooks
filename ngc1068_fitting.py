@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ehtplot
 import scienceplots
-import cmasher as cmr
+# import cmasher as cmr
 
 # import sys
 
@@ -62,7 +62,7 @@ else:
     path = "/fred/oz440/max/"
 
 source_name = "NGC1068"
-data_path = os.path.join(path, f"data/JWST/{source_name}/calslope/")
+data_path = os.path.join(path, f"data/JWST/{source_name}/new_calslope/new_calslope/")
 uncal_path = os.path.join(path, f"data/JWST/{source_name}/uncal/")
 amigo_cache = os.path.join(path, "data/amigo_files/")
 
@@ -130,11 +130,6 @@ for file in files:
     # file["BADPIX"].data[40, 45] = 1  # MIDDLE PIXELS
 
     if not bool(file[0].header["IS_PSF"]):
-        # badpix = np.array(file["BADPIX"].data, dtype=bool)
-        # im = np.array(file["SLOPE"].data.sum(0))
-        # im = np.where(badpix, np.nan, im)
-        # mask = binary_dilation(im == np.nanmax(im), iterations=2)
-        # file["BADPIX"].data += mask.astype(int)
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 228337"
@@ -142,7 +137,7 @@ for file in files:
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
 
-dorito.misc.truncate_files(sci_files, 10)
+dorito.misc.truncate_files(sci_files, 4)
 
 
 # %%
@@ -156,39 +151,39 @@ for file in files:
     )
 
 # %%
-from scipy.ndimage import binary_dilation
+# from scipy.ndimage import binary_dilation
 
 
-def get_depth(exp, threshold=30_000):
-    depth_cube = []
-    for group in exp.ramp[1:]:
-        group = np.where(exp.badpix, np.nan, group)
-        sat_badpix = binary_dilation(group > threshold)
-        depth_cube.append(sat_badpix)
+# def get_depth(exp, threshold=30_000):
+#     depth_cube = []
+#     for group in exp.ramp[1:]:
+#         group = np.where(exp.badpix, np.nan, group)
+#         sat_badpix = binary_dilation(group > threshold)
+#         depth_cube.append(sat_badpix)
 
-    return (exp.ngroups - 1) - np.array(depth_cube, dtype=int).sum(0)
-
-
-def fudge_cov_pp(cov, d, bajillion):
-    cov = cov.at[d:, :].set(0.0)
-    cov = cov.at[:, d:].set(0.0)
-    cov = cov.at[d:, d:].set(bajillion * np.eye((cov.shape[0] - d)))
-    return cov
+#     return (exp.ngroups - 1) - np.array(depth_cube, dtype=int).sum(0)
 
 
-def fudge_cov(cov, depth, bajillion=1e6):
-    """Modifies a (48, 48, 80, 80) covariance array in-place,
-    using per-pixel depths (80, 80)"""
-    h, w = depth.shape
-    final_cov = np.empty_like(cov)
+# def fudge_cov_pp(cov, d, bajillion):
+#     cov = cov.at[d:, :].set(0.0)
+#     cov = cov.at[:, d:].set(0.0)
+#     cov = cov.at[d:, d:].set(bajillion * np.eye((cov.shape[0] - d)))
+#     return cov
 
-    for i in range(h):
-        for j in range(w):
-            d = int(depth[i, j])
-            this_cov = fudge_cov_pp(cov[..., i, j], d, bajillion)
-            final_cov = final_cov.at[..., i, j].set(this_cov)
 
-    return final_cov
+# def fudge_cov(cov, depth, bajillion=1e6):
+#     """Modifies a (48, 48, 80, 80) covariance array in-place,
+#     using per-pixel depths (80, 80)"""
+#     h, w = depth.shape
+#     final_cov = np.empty_like(cov)
+
+#     for i in range(h):
+#         for j in range(w):
+#             d = int(depth[i, j])
+#             this_cov = fudge_cov_pp(cov[..., i, j], d, bajillion)
+#             final_cov = final_cov.at[..., i, j].set(this_cov)
+
+#     return final_cov
 
 
 # %%
@@ -203,10 +198,10 @@ sci_exposures = [
 ]
 exposures = cal_exposures[0:1] + sci_exposures[0:1]
 # exposures = cal_exposures + sci_exposures
-exposures = [
-    exp.set("cov", fudge_cov(exp.cov, get_depth(exp, threshold=25_000)))
-    for exp in exposures
-]
+# exposures = [
+#     exp.set("cov", fudge_cov(exp.cov, get_depth(exp, threshold=25_000)))
+#     for exp in exposures
+# ]
 # exposures = exposures[0:1]
 
 model = amigo.core_models.AmigoModel(
@@ -229,7 +224,7 @@ model = amigo.core_models.AmigoModel(
 
 # %%
 print("Training...")
-n_epoch = 50
+n_epoch = 10000
 
 config = {
     "positions": sgd(5e-1, 0, (10, 0.1), (500, 0)),
@@ -279,8 +274,8 @@ result = trainer.train(
     optimisers=config,
     epochs=n_epoch,
     # batches=exposures[0:1],
-    # batches=exposures,
-    batches=amigo.fitting.batch_exposures(exposures, n_batch=len(exposures) // 3),
+    batches=exposures,
+    # batches=amigo.fitting.batch_exposures(exposures, n_batch=len(exposures) // 3),
 )
 
 # %%
