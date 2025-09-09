@@ -41,6 +41,7 @@ if gethostname() == "glinton":
 elif gethostname() == "AJQ4YHQH9TX":
     path = "/Volumes/morgana1/snert/max/"
 else:
+    abers_dir = "/fred/oz440/max/code/dorito_notebooks/files/"
     path = "/fred/oz440/max/"
 
 source_name = "NGC1068"
@@ -52,24 +53,24 @@ cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
-# FILTERS = [
-#     "F480M",
-#     # "F430M",
-#     # "F380M",
-# ]
 FILTERS = [
-    ["F480M"],
-    ["F430M"],
-    ["F380M"],
+    "F480M",
+    # "F430M",
+    # "F380M",
 ]
+# FILTERS = [
+#     ["F480M"],
+#     ["F430M"],
+#     ["F380M"],
+# ]
 
-idx = int(sys.argv[1])
-setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), 
-         (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9),
-         (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9)]
+# idx = int(sys.argv[1])
+# setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), 
+#          (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9),
+#          (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9)]
 
-i, j = setup[idx]
-FILTERS = FILTERS[i]
+# i, j = setup[idx]
+# FILTERS = FILTERS[i]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -113,10 +114,14 @@ print(datetime_str)
 
 job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
 
-output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
+batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+output_path = os.path.join(output_path, job_id) + f"/{batch_idx}/"
+
+# output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
+
 
 # %% [markdown]
 # # Loading in data
@@ -267,8 +272,12 @@ cal_fits = [YearPointFit(file, use_cov=True) for file in cal_files]
 # fits = [fit for fit in sci_fits if fit.dither == "1"] + [
 #     fit for fit in cal_fits if fit.dither == "1"
 # ]
-# fits = sci_fits[0:1] + cal_fits[0:1]
-fits = sci_fits + cal_fits
+fits = sci_fits[0:1] + cal_fits[0:1]
+# fits = sci_fits + cal_fits
+
+abbs = np.load(abers_dir+"ngc_abbs.npy", allow_pickle=True).item()
+state = load_dict(cache + "calibration.npy")
+state["aberrations"]["F480M"] = abbs["aberrations"]["01260_F480M"]
 
 # building the model
 model = dorito.models.ResolvedAmigoModel(
@@ -284,9 +293,9 @@ model = dorito.models.ResolvedAmigoModel(
 )
 
 # %%
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
+# for exp in fits:
+#     exp.print_summary()
+#     amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
 
 import shutil
 shutil.copy(__file__, output_path + '/script.py') 
@@ -303,11 +312,16 @@ for exp in fits:
         spc_keys.append(exp.map_param("spectra"))
 
 
+from jax_gaussian import gaussian_filter
+# sigs = np.concat((np.array([1e-16,]), np.linspace(0.05, 0.7, 14)))
+# sig = float(sigs[int(batch_idx)])
+sig = 0.25
 def norm_fn(model_params, args):
     params = model_params.params
     if "log_dist" in params.keys():
         for k, log_dist in params["log_dist"].items():
             distribution = 10**log_dist
+            distribution = gaussian_filter(distribution, sigma=sig)
             params["log_dist"][k] = np.log10(distribution / distribution.sum())
 
     if "spectra" in params.keys():
@@ -322,14 +336,14 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 6000
+n_epoch = 15000
 
 config = {
     "positions": sgd(5e-2, 0),
     "fluxes": sgd(5e-2, 5),
-    "aberrations": sgd(2e-1, 10),
-    "log_dist": adam(2e-2, 10, (1000, 0.75)),
-    "spectra": sgd(2e-1, 50),
+    # "aberrations": sgd(2e-1, 10),
+    "log_dist": adam(1e-3, 10,),
+    "spectra": sgd(2e-1, 500),
     # "amplitudes": sgd(5e-1, 50),
     # "phases": sgd(5e-1, 50),
 }
@@ -346,12 +360,13 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
-tsvs = [1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7]
+tvs = [1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 1e5]
 # mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
 args = {
     "reg_dict": {
         # "ME": (mes[int(j)], dorito.stats.ME),
-        "TSV": (tsvs[int(j)], dorito.stats.TSV),
+        # "TSV": (tsvs[int(j)], dorito.stats.TSV),
+        "TV": (tvs[int(batch_idx)], dorito.stats.TV),
     }
 }
 
@@ -366,19 +381,19 @@ print("Populating fishers...")
 trainer = trainer.populate_fishers(
     # model.set("detector.ramp.bleed", False).set("params", params),
     model,
-    fits,
+    fits[0:1],
     hessians=load_dict(cache + "jacobians.npy")["hessian"],
     parameters=[p for p in config.keys()],  # if p not in ["log_dist"]],
 )
 
-print("Number of exposures: ", len(fits))
+print("Number of exposures: ", len(fits[0:1]))
 
 # Train the model
 result = trainer.train(
     model=model,
     optimisers=config,
     epochs=n_epoch,
-    batches=fits,
+    batches=fits[0:1],
     args=args,
 )
 
@@ -403,7 +418,7 @@ def eff_wavel(model, filt):
     return np.dot(wavels, weights)
 
 
-for exp in fits:
+for exp in fits[0:1]:
 
     if exp.calibrator:
         continue
@@ -431,7 +446,7 @@ for exp in fits:
     plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
     plt.close()
 
-for exp in fits:
+for exp in fits[0:1]:
     exp.print_summary()
     amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
 

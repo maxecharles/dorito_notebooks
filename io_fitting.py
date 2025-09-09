@@ -61,8 +61,8 @@ elif gethostname() == "AJQ4YHQH9TX":
 else:
     path = "/fred/oz440/max/"
 
-source_name = "NGC1068"
-data_path = os.path.join(path, f"data/JWST/{source_name}/new_calslope/new_calslope/")
+source_name = "IO"
+data_path = os.path.join(path, f"data/JWST/{source_name}/calslope/")
 uncal_path = os.path.join(path, f"data/JWST/{source_name}/uncal/")
 amigo_cache = os.path.join(path, "data/amigo_files/")
 
@@ -88,9 +88,32 @@ file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
 )
 
 from datetime import datetime
+form = "%d-%m-%y_%H-%M-%S.%f"
+now = datetime.now()
+datetime_str = now.strftime(form)
 
-now = datetime.now().replace(second=0, microsecond=0)
-datetime_str = now.strftime("%d-%m-%y_%H-%M")
+# clear directory of empty folders
+for folder in os.listdir(output_path):
+    folder_dir = os.path.join(output_path, folder)
+
+    # skip if not a directory
+    if not os.path.isdir(folder_dir):
+        continue
+
+    # if the folder is empty
+    if len(os.listdir(folder_dir)) == 0:
+
+        try:
+            then = datetime.strptime(folder, form)
+                
+            # remove empty folder if it is older than 1 hour
+            if (now - then).seconds > 3600:  # 1 hour
+                print(f"Removing empty folder: {folder_dir}")
+                os.rmdir(folder_dir)
+        except ValueError:
+            # if the folder name is not in the correct format, skip it
+            print(f"Deleting folder: {folder_dir} (not in correct format)")
+            os.rmdir(folder_dir)
 
 # datetime_str = f"{i}_groups"
 print(datetime_str)
@@ -99,8 +122,6 @@ output_path = os.path.join(output_path, datetime_str) + "/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
-
-
 # %%
 files = sorted(
     file_fn(data_path), key=lambda hdu: hdu[0].header.get("EXPMID", float("inf"))
@@ -124,13 +145,14 @@ for file in files:
     file["BADPIX"].data[28, 18] = 1
     file["BADPIX"].data[32, 10] = 1
 
-    file["BADPIX"].data[:, :3] = 1
-    file["BADPIX"].data[:, -3:] = 1
-    file["BADPIX"].data[:3, :] = 1
-    file["BADPIX"].data[-3:, :] = 1
+    file["BADPIX"].data[:, :10] = 1
+    file["BADPIX"].data[:, -10:] = 1
+    file["BADPIX"].data[:10, :] = 1
+    file["BADPIX"].data[-10:, :] = 1
 
-    # if file[0].header["TARGPROP"] == "NGC1068":
     if not bool(file[0].header["IS_PSF"]):
+        file["BADPIX"].data[43, 45] = 1
+        file["BADPIX"].data[40, 45] = 1
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 2236"
@@ -196,7 +218,7 @@ cal_exposures = [
     amigo.model_fits.SplineVisFit(file, use_cov=False) for file in cal_files[0:1]
 ]
 sci_exposures = [
-    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files[0:1]
+    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files
 ]
 exposures = cal_exposures + sci_exposures
 # exposures = [
@@ -286,9 +308,11 @@ model = amigo.core_models.AmigoModel(
 #     model.params["amplitudes"][exp.get_key("amplitudes")] = lat_amp
 #     model.params["phases"][exp.get_key("phases")] = lat_phase
 
+import shutil
+shutil.copy(__file__, output_path + '/script.py') 
 # %%
 print("Training...")
-n_epoch = 10000
+n_epoch = 15000
 
 config = {
     # # Init'ing from MFT
@@ -350,7 +374,7 @@ trainer = amigo.fitting.Trainer(
 
 trainer = trainer.populate_fishers(
     model,
-    exposures,
+    exposures[0:1],
     hessians=load_dict(cache + "jacobians.npy")["hessian"],
     parameters=list(config.keys()),
 )
@@ -370,21 +394,18 @@ result = trainer.train(
 # %%
 losses = np.array([v for v in result.losses.values()]).mean(0)
 
-amigo.plotting.plot_losses(losses, start=int(0.8 * n_epoch), save_path=output_path)
-try:
-    amigo.plotting.plot(result.history, save_path=output_path)
-except Exception as e:
-    print(f"Error during plotting: {e}")
-    pass
-
-# for exp in exposures:
 for exp in exposures:
-    try:
-        r = False if exp.calibrator else True
-        amigo.plotting.summarise_fit(result.model, exp, r)
-    except Exception as e:
-        print(f"Error during plotting {exp.star}, {exp.key}: {e}")
-        pass
+    exp.print_summary()
+    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
+
+amigo.plotting.plot_losses(
+    result.losses[0], start=int(n_epoch * 0.75), save_path=output_path
+)
+amigo.plotting.plot(result.history, save_path=output_path)
+np.save(output_path + "params_postgd.npy", result.model.params, allow_pickle=True)
+
+
+
 
 
 # %%
@@ -542,7 +563,7 @@ except Exception as e:
 
 # %%
 import jax.tree as jtu
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 from amigo.fisher import FIM
 
 

@@ -1,5 +1,6 @@
 from jax._src.typing import ArrayLike, Array
 from jax import numpy as jnp
+import jax
 import functools
 from collections.abc import Callable, Sequence
 from scipy.ndimage import _ni_support

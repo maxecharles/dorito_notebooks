@@ -144,6 +144,7 @@ for file in files:
 
     if not bool(file[0].header["IS_PSF"]):
         file["BADPIX"].data[43, 45] = 1
+        file["BADPIX"].data[40, 45] = 1
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 2236"
@@ -184,12 +185,12 @@ basis = onp.zeros((npix * npix, npix * npix))
 
 mask = TukeyWindow(alpha=0.0)((npix, npix))
 
-
 for j in tqdm(range(npix)):
     for i in range(npix):
         pixel_grid = 0 * onp.ones_like(pixel_grid)
-        pixel_grid[j, i] = 1
-        convolved = gaussian_filter(pixel_grid, sigma=1.0) * mask
+        if mask[j, i]:
+            pixel_grid[j, i] = 1
+        convolved = gaussian_filter(pixel_grid, sigma=0.2)  # * mask
         # convolved = pixel_grid
         basis[:, j * npix + i] = convolved.flatten()
 
@@ -197,24 +198,24 @@ eigvals, eigvecs = np.linalg.eigh(basis)
 eigvals, eigvecs = eigvals.real[::-1], eigvecs.real[..., ::-1]
 basis_dict = {"eigvals": eigvals, "eigvecs": eigvecs}
 
-# n_terms = [
-#     100,
-#     400,
-#     700,
-#     1000,
-#     1300,
-#     1600,
-#     1800,
-#     2000,
-#     2500,
-#     3000,
-#     3500,
-#     4000,
-#     4500,
-#     5000,
-#     len(eigvals),
-# ][int(batch_idx)]
-n_terms = 1600
+n_terms = [
+    100,
+    400,
+    700,
+    1000,
+    1300,
+    1600,
+    1800,
+    2000,
+    2500,
+    3000,
+    4000,
+    5000,
+    6000,
+    7000,
+    8000,
+][int(batch_idx)]
+# n_terms = 1600
 print(f"Using {n_terms} basis terms")
 
 
@@ -253,7 +254,7 @@ def normalise_coeffs(basis, coeffs):
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 # sci_fits = [DynamicResolvedFit(file, use_cov=True) for file in sci_files]
-sci_fits = [dorito.model_fits.TransformedResolvedFit(file) for file in sci_files]
+sci_fits = [dorito.model_fits.TransformedResolvedFit(file, use_cov=True) for file in sci_files]
 cal_fits = [amigo.model_fits.PointFit(file, use_cov=False) for file in cal_files]
 
 # I only want to use the calibrator in the same primary dither position
@@ -353,13 +354,13 @@ def loss_fn(model, exp, args={"reg_dict": {}}):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 12000
+n_epoch = 15000
 
 config = {
-    "positions": sgd(5e-1, 5, (50, 0.0)),
+    "positions": sgd(5e-1, 5, (500, 0.0)),
     "fluxes": sgd(2e-2, 0),
     "log_dist": adam(2e-5, 15),
-    "spectra": sgd(5e-2, 500),
+    "spectra": sgd(1e-1, 10),
 }
 
 
@@ -374,16 +375,16 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
-# tsvs = [0., 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13]
-tvs = [0., 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13]
-# mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
-args = {
-    "reg_dict": {
-        "TV": (tvs[int(batch_idx)], dorito.stats.TV),
-        # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
-        # "ME": (mes[int(batch_idx)], dorito.stats.ME),
-    }
-}
+# # tsvs = [0., 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13]
+# tvs = [0., 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13]
+# # mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
+# args = {
+#     "reg_dict": {
+#         "TV": (tvs[int(batch_idx)], dorito.stats.TV),
+#         # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
+#         # "ME": (mes[int(batch_idx)], dorito.stats.ME),
+#     }
+# }
 
 trainer = amigo.fitting.Trainer(
     loss_fn=loss_fn,
@@ -410,7 +411,7 @@ result = trainer.train(
     epochs=n_epoch,
     batches=fits[0:1],
     # batches=fits,
-    args=args,
+    # args=args,
 )
 
 

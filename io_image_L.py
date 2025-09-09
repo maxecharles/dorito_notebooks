@@ -139,6 +139,8 @@ for file in files:
     file["BADPIX"].data[-10:, :] = 1
 
     if not bool(file[0].header["IS_PSF"]):
+        file["BADPIX"].data[43, 45] = 1
+        file["BADPIX"].data[40, 45] = 1
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 2236"
@@ -187,6 +189,7 @@ class DynamicResolvedFit(dorito.model_fits.ResolvedFit):
 source_size = 131  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
+# sci_fits = [dorito.model_fits.ResolvedFit(file, use_cov=True) for file in sci_files]
 sci_fits = [DynamicResolvedFit(file, use_cov=True) for file in sci_files]
 cal_fits = [amigo.model_fits.PointFit(file, use_cov=False) for file in cal_files]
 
@@ -207,9 +210,9 @@ model = dorito.models.ResolvedAmigoModel(
 )
 
 # %%
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
+# for exp in fits:
+#     exp.print_summary()
+#     amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
 
 import shutil
 
@@ -226,12 +229,16 @@ for exp in fits:
         pos_keys.append(exp.map_param("positions"))
         spc_keys.append(exp.map_param("spectra"))
 
-
+from jax_gaussian import gaussian_filter
+# sigs = np.concat((np.array([1e-16,]), np.linspace(0.05, 0.7, 14)))
+# sig = float(sigs[int(batch_idx)])
+sig = 0.25
 def norm_fn(model_params, args):
     params = model_params.params
     if "log_dist" in params.keys():
         for k, log_dist in params["log_dist"].items():
             distribution = 10**log_dist
+            distribution = gaussian_filter(distribution, sigma=sig)
             params["log_dist"][k] = np.log10(distribution / distribution.sum())
 
     if "spectra" in params.keys():
@@ -246,14 +253,14 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 5000
+n_epoch = 15000
 
 config = {
-    "positions": sgd(4e-2, 0),
+    "positions": sgd(4e-2, 0, (500, 0.)),
     "fluxes": sgd(5e-2, 0),
-    "aberrations": sgd(5e0, 4),
+    # "aberrations": sgd(5e0, 4),
     "spectra": sgd(1e-1, 10),
-    "log_dist": adam(5e-2, 20),  # , (10, 0.25), b1=0.7),
+    "log_dist": adam(1e-2, 20, (11000, 0.2)),  # , (10, 0.25), b1=0.7),
 }
 
 
@@ -267,11 +274,13 @@ def grad_fn(model, grads, args):
         grads = grads.multiply(spc_keys, 0.3)
     return grads, args
 
-tsvs = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
-# mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
+# tsvs = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
+tvs = [0., 2e-2, 5e-2, 1e-1, 2e-1, 5e-1, 8e-1, 1e0, 2e0, 5e0, 1e1, 2e1, 5e1, 1e2, 5e2]
+# # mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
 args = {
     "reg_dict": {
-        "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
+        "TV": (tvs[int(batch_idx)], dorito.stats.TV),
+        # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
         # "ME": (mes[int(batch_idx)], dorito.stats.ME),
     }
 }
@@ -334,9 +343,9 @@ for exp in fits:
         ax,
         dist / dist.max(),
         pixel_scale=model.psf_pixel_scale / model.oversample,
-        cmap="inferno",
+        # cmap="inferno",
         # roll_angle_degrees=-exp.parang,
-        norm=mpl.colors.LogNorm(vmin=1e-5),
+        # norm=mpl.colors.LogNorm(vmin=1e-5),
         # norm=mpl.colors.PowerNorm(0.3, vmax=0.3),
         diff_lim=dlu.rad2arcsec(eff_wavel(model, exp.filter) / optics_diameter),
         scale=1,

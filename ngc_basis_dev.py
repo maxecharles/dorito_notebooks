@@ -15,9 +15,8 @@ jax.config.update("jax_platform_name", "gpu")
 print(jax.local_devices()[0].device_kind)
 
 # other helpful libraries
-import numpy
 import os
-import astropy
+import sys
 
 # matplotlib ecosystem
 import matplotlib.pyplot as plt
@@ -44,11 +43,12 @@ if gethostname() == "glinton":
 elif gethostname() == "AJQ4YHQH9TX":
     path = "/Volumes/morgana1/snert/max/"
 else:
+    abers_dir = "/fred/oz440/max/code/dorito_notebooks/files/"
     path = "/fred/oz440/max/"
 
 source_name = "NGC1068"
 # data_path = os.path.join(path, f"data/JWST/{source_name}/calslope/")
-data_path = os.path.join(path, f"data/JWST/{source_name}/new_calslope/")
+data_path = os.path.join(path, f"data/JWST/{source_name}/new_calslope/new_calslope/")
 uncal_path = os.path.join(path, f"data/JWST/{source_name}/uncal/")
 amigo_cache = os.path.join(path, "data/amigo_files/")
 
@@ -78,33 +78,39 @@ form = "%d-%m-%y_%H-%M-%S.%f"
 now = datetime.now()
 datetime_str = now.strftime(form)
 
-# clear directory of empty folders
-for folder in os.listdir(output_path):
-    folder_dir = os.path.join(output_path, folder)
+# # clear directory of empty folders
+# for folder in os.listdir(output_path):
+#     folder_dir = os.path.join(output_path, folder)
 
-    # skip if not a directory
-    if not os.path.isdir(folder_dir):
-        continue
+#     # skip if not a directory
+#     if not os.path.isdir(folder_dir):
+#         continue
 
-    # if the folder is empty
-    if len(os.listdir(folder_dir)) == 0:
+#     # if the folder is empty
+#     if len(os.listdir(folder_dir)) == 0:
 
-        try:
-            then = datetime.strptime(folder, form)
+#         try:
+#             then = datetime.strptime(folder, form)
 
-            # remove empty folder if it is older than 1 hour
-            if (now - then).seconds > 3600:  # 1 hour
-                print(f"Removing empty folder: {folder_dir}")
-                os.rmdir(folder_dir)
-        except ValueError:
-            # if the folder name is not in the correct format, skip it
-            print(f"Deleting folder: {folder_dir} (not in correct format)")
-            os.rmdir(folder_dir)
+#             # remove empty folder if it is older than 1 hour
+#             if (now - then).seconds > 3600:  # 1 hour
+#                 print(f"Removing empty folder: {folder_dir}")
+#                 os.rmdir(folder_dir)
+#         except ValueError:
+#             # if the folder name is not in the correct format, skip it
+#             print(f"Deleting folder: {folder_dir} (not in correct format)")
+#             os.rmdir(folder_dir)
 
 # datetime_str = f"{i}_groups"
 print(datetime_str)
 
-output_path = os.path.join(output_path, datetime_str) + "/"
+batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+
+job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+if job_id is None:
+    job_id = "local_test"
+
+output_path = os.path.join(output_path, job_id) + f"/{batch_idx}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
@@ -145,29 +151,25 @@ for file in files:
 
 dorito.misc.truncate_files(sci_files, 4)
 
-# %%
 from tqdm import tqdm
 from scipy.ndimage import gaussian_filter
 from photutils.psf.matching import TukeyWindow
 import numpy as onp
 
-source_size = 81  # pixels
+source_size = 101  # pixels
 npix = source_size
 
 pixel_grid = onp.zeros((npix, npix))
 basis = onp.zeros((npix * npix, npix * npix))
 
-mask = TukeyWindow(alpha=0.2)((npix, npix))
+mask = TukeyWindow(alpha=0.0)((npix, npix))
 
-# plt.imshow(mask)
-# plt.colorbar()
-# plt.show()
 
 for j in tqdm(range(npix)):
     for i in range(npix):
         pixel_grid = 0 * onp.ones_like(pixel_grid)
         pixel_grid[j, i] = 1
-        convolved = gaussian_filter(pixel_grid, sigma=3.0)  # * mask
+        convolved = gaussian_filter(pixel_grid, sigma=1.0)# * mask
         # convolved = pixel_grid
         basis[:, j * npix + i] = convolved.flatten()
 
@@ -175,217 +177,25 @@ eigvals, eigvecs = np.linalg.eigh(basis)
 eigvals, eigvecs = eigvals.real[::-1], eigvecs.real[..., ::-1]
 basis_dict = {"eigvals": eigvals, "eigvecs": eigvecs}
 
-# %%
-# for i in range(10):
-#     plt.imshow(
-#         eigvecs[..., i].reshape((npix, npix)),
-#         cmap="coolwarm",
-#         norm=mpl.colors.CenteredNorm(),
-#     )
-#     plt.colorbar()
-#     plt.show()
-
-n1, n2 = 1201, 2500
-plt.plot(np.log10(eigvals))
-plt.axvline(n1, color="k", ls="--")
-plt.axvline(n2, color="k", ls="--")
-plt.show()
-
-fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-im = axes[0].imshow(eigvecs[:, n1].reshape((npix, npix)), cmap="coolwarm")
-axes[0].set_title("Decent Example")
-fig.colorbar(im, ax=axes[0])
-
-im = axes[1].imshow(eigvecs[:, n2].reshape((npix, npix)), cmap="coolwarm")
-axes[1].set_title("Bad Checquerboard")
-fig.colorbar(im, ax=axes[1])
-plt.show()
-
-# %%
-# def get_envelope(s, window=2000):
-#     diff = -onp.diff(np.log10(s))
-#     diff[window:] = 0
-#     plt.plot(diff)
-#     maxima = onp.maximum.accumulate(diff[::-1])[::-1]
-#     plt.plot(maxima)
-#     plt.xlim(0, window)
-#     plt.show()
-#     return maxima
-
-
-# def get_knee(s, window=2000):
-#     maxima = get_envelope(s, window=window)
-#     return onp.min(onp.where(maxima < maxima[0] * 0.8))
-
-
-# get_envelope(eigvals, window=3000)
-
-# get_knee(eigvals, window=3000)
-
-# %%
-from jaxtyping import Array
-import equinox as eqx
-from amigo.model_fits import ModelFit
-from dorito.model_fits import ResolvedFit
-
-
-class ImageBasis(zdx.Base):
-
-    M: Array
-    M_inv: Array
-    n_basis: int = eqx.field(static=True)
-    size: int = eqx.field(static=True)
-
-    def __init__(self, basis_dict: dict, n_basis: int):
-        self.n_basis = n_basis
-        self.M = basis_dict["eigvecs"][:, :n_basis]
-        self.M_inv = np.linalg.pinv(self.M)
-        self.size = int(np.sqrt(self.M.shape[0]))
-
-    def to_eigenbasis(self, img: Array) -> Array:
-        return np.dot(self.M_inv, img.flatten())
-
-    def from_eigenbasis(self, coeffs: Array) -> Array:
-        return np.dot(self.M, coeffs).reshape((self.size, self.size))
-
-
-class TransformedResolvedModel(dorito.models.ResolvedAmigoModel):
-
-    basis: None
-
-    def __init__(
-        self,
-        exposures,
-        optics,
-        detector,
-        ramp_model,
-        read,
-        basis: ImageBasis,
-        state,
-        source_oversample=1,
-        param_initers: dict = None,
-    ):
-
-        # This seems to fix some recompile issues
-        def fn(x):
-            if isinstance(x, jax.Array):
-                if "i" in x.dtype.str:
-                    return x
-                return np.array(x, dtype=float)
-            return x
-
-        self.basis = jtu.map(lambda x: fn(x), basis)
-
-        super().__init__(
-            exposures,
-            optics,
-            detector,
-            ramp_model,
-            read,
-            state,
-            source_oversample,
-            param_initers,
-        )
-
-    def get_distribution(self, exposure, rotate=True):
-        """
-        Get the distribution from the exposure.
-
-        Args:
-            exposure: The exposure object containing the distribution key.
-        Returns:
-            Array: The intensity distribution of the source.
-        """
-        # distribution = 10 ** self.params["log_dist"][exposure.get_key("log_dist")]
-        coeffs = self.params["log_dist"][exposure.get_key("log_dist")]
-        # distribution = 10 ** self.basis.from_eigenbasis(coeffs)
-        distribution = self.basis.from_eigenbasis(coeffs)
-        # distribution += np.array([-distribution.min(), 0]).max()
-        # distribution = distribution / distribution.sum()
-        # if rotate:
-        #     distribution = exposure.rotate(distribution)
-
-        return distribution
-
-
-class TransformedResolvedFit(ResolvedFit):
-    """
-    Model fit for resolved sources. This adds the log distribution parameter.
-    """
-
-    def initialise_params(self, optics, coeffs):
-        """
-        Initialise the parameters for the resolved source model fit.
-        The log distribution is set to a uniform distribution specified by the source size.
-
-        Args:
-            optics: The optics object (to pass to the parent class).
-            source_size: The size of the source distribution (assumed square).
-
-        Returns:
-            params: A dictionary containing the initialised parameters for the model fit.
-        """
-
-        params = ModelFit.initialise_params(self, optics)
-
-        # log distribution
-        params["log_dist"] = (self.get_key("log_dist"), coeffs)
-
-        return params
-
-
-# %% [markdown]
-# ## Building the model
-#
-# We are going to have to build the exposures. DORITO has a `ResolvedFit` class build in, however this will jointly fit all exposures from the same filter. Since we want to capture Io's rotation in a time series, we instead want to uniquely fit all five epochs. To do this, we will write a child class of `ResolvedFit` and amend the `get_key` method. By adding the `self.key` to the `log_distribution` parameter key, this ensures each exposure will fit a unique distribution.
-
-# %%
-tukey_basis = ImageBasis(basis_dict, n_basis=1200)
-
-
-# %%
-def normalise_coeffs(basis, coeffs):
-    dist = basis.from_eigenbasis(coeffs)
-    # dist = 10 ** basis.from_eigenbasis(coeffs)
-    dist = dist / dist.sum()
-    return basis.to_eigenbasis(dist)
-    # return basis.to_eigenbasis(np.log10(dist))
-
-
-# coeffs = np.log10(onp.random.dirichlet(np.ones(tukey_basis.n_basis), size=1))
-
-# dist = tukey_basis.from_eigenbasis(np.zeros_like(coeffs))
-
-# # coeffs = onp.random.normal(size=(tukey_basis.n_basis,))
-# coeffs = tukey_basis.to_eigenbasis(np.log10(mask / mask.sum() + 1e-6))
-
-# print(coeffs.shape)
-# dist = tukey_basis.from_eigenbasis(coeffs)
-# dist = 10**dist
-# dist /= dist.sum()
-# new_coeffs = tukey_basis.to_eigenbasis(np.log10(dist))
-# new_dist = 10 ** (tukey_basis.from_eigenbasis(new_coeffs))
-
-# # norm_coeffs = normalise_coeffs(tukey_basis, coeffs)
-# # round_dist = 10 ** tukey_basis.from_eigenbasis(norm_coeffs)
-
-# plt.figure(figsize=(11, 2))
-# plt.subplot(1, 3, 1)
-# plt.imshow(dist, norm=mpl.colors.PowerNorm(1, vmin=None))
-# plt.title(f"{dist.sum():.2f}")
-# plt.colorbar()
-# plt.subplot(1, 3, 2)
-# plt.imshow(new_dist, norm=mpl.colors.PowerNorm(1, vmin=None))
-# plt.title(new_dist.sum())
-# plt.colorbar()
-# plt.subplot(1, 3, 3)
-# # plt.scatter(range(tukey_basis.n_basis), coeffs, marker="^")
-# for idx, val in enumerate(coeffs):
-#     plt.plot([idx, idx], [0, val], color="pink", alpha=0.8, linewidth=2)
-# for idx, val in enumerate(new_coeffs):
-#     plt.plot([idx, idx], [0, val], color="blue", alpha=0.5, linewidth=0.8)
-# plt.ylim(-5, 5)
-# plt.show()
+n_terms = [
+    100,
+    400,
+    700,
+    1000,
+    1300,
+    1600,
+    1800,
+    2000,
+    2500,
+    3000,
+    3500,
+    4000,
+    4500,
+    5000,
+    len(eigvals),
+][int(batch_idx)]
+# n_terms = 1600
+print(f"Using {n_terms} basis terms")
 
 
 # %%
@@ -399,12 +209,18 @@ def gaussian_2d(shape, center=None, sigma=10):
     return gauss / gauss.sum()
 
 
+def normalise_coeffs(basis, coeffs):
+    dist = basis.from_eigenbasis(coeffs)
+    dist = dist / dist.sum()
+    return basis.to_eigenbasis(dist)
+
+
 # source_size = 81  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 # sci_fits = [DynamicResolvedFit(file, source_size) for file in sci_files]
 # sci_fits = [dorito.model_fits.ResolvedFit(file) for file in sci_files]
-sci_fits = [TransformedResolvedFit(file) for file in sci_files]
+sci_fits = [dorito.model_fits.TransformedResolvedFit(file) for file in sci_files]
 cal_fits = [amigo.model_fits.PointFit(file) for file in cal_files]
 
 # I only want to use the calibrator in the same primary dither position
@@ -417,42 +233,35 @@ init_dist = gaussian_2d(init_dist.shape, sigma=15)
 plt.imshow(init_dist)
 plt.show()
 
-abbs = np.load("files/abers.npy", allow_pickle=True).item()
+abbs = np.load(abers_dir+"ngc_abbs.npy", allow_pickle=True).item()
 state = load_dict(cache + "calibration.npy")
-state["aberrations"]["F430M"] = abbs["01373_F430M"]
+state["aberrations"]["F480M"] = abbs["aberrations"]["01260_F480M"]
 
-model = TransformedResolvedModel(
+basis = dorito.models.ImageBasis(basis_dict, n_basis=n_terms)
+
+
+# building the model
+model = dorito.models.TransformedResolvedModel(
     # model = dorito.models.ResolvedAmigoModel(
     exposures=fits,
     optics=amigo.optical_models.AMIOptics(),
     detector=amigo.detector_models.LinearDetector(),
     ramp_model=amigo.ramp_models.NonLinearRamp(),
     read=amigo.read_models.ReadModel(),
-    basis=tukey_basis,
-    state=state,
-    # param_initers={"coeffs": np.array(new_coeffs)},
-    # param_initers={"coeffs": tukey_basis.to_eigenbasis(init_dist)},
+    basis=basis,
+    state=load_dict(cache + "calibration.npy"),
     param_initers={
         "coeffs": normalise_coeffs(
-            tukey_basis,
-            tukey_basis.to_eigenbasis(init_dist / init_dist.sum()),
-            # tukey_basis.to_eigenbasis(np.log10(init_dist / init_dist.sum())),
+            basis, basis.to_eigenbasis(init_dist / init_dist.sum())
         )
     },
-    # param_initers={"distribution": init_dist},
-    # param_initers={"coeffs": tukey_basis.to_eigenbasis(mask / mask.sum())},
-    # param_initers={"coeffs": tukey_basis.to_eigenbasis(np.log10(mask / mask.sum()))},
+    rotate=False,
 )
 
 # %%
-plt.imshow(model.get_distribution(sci_fits[0]))
-plt.colorbar()
-plt.show()
-
-# %%
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(model, exp, residuals=False)
+# for exp in fits:
+    # exp.print_summary()
+    # amigo.plotting.summarise_fit(model, exp, residuals=False)
 
 # %% [markdown]
 # ## Optimisation Stage 1: Gradient Descent
@@ -466,37 +275,18 @@ for exp in fits:
         spc_keys.append(exp.map_param("spectra"))
 
 
-def loLU(x, lol=1e3):
+def loLU(x, lol=1e6):
     return np.log(1 + np.exp(lol * x))
 
 
 def norm_fn(model_params, args):
     params = model_params.params
-    # if "log_dist" in params.keys():
-    #     for k, coeffs in params["log_dist"].items():
-    #         # distribution = tukey_basis.from_eigenbasis(coeffs)
-    #         # distribution = np.clip(distribution, 0)
-    #         distribution = 10 ** tukey_basis.from_eigenbasis(coeffs)
-    #         distribution /= distribution.sum()
-    #         distribution = np.log10(distribution)
-    #         coeffs = tukey_basis.to_eigenbasis(distribution)
-    #         params["log_dist"][k] = coeffs
-
-    # if "log_dist" in params.keys():
-    #     for k, log_dist in params["log_dist"].items():
-    #         distribution = 10**log_dist
-    #         distribution /= distribution.sum()
-    #         distribution = np.log10(distribution)
-    #         params["log_dist"][k] = distribution
 
     if "log_dist" in params.keys():
         for k, coeffs in params["log_dist"].items():
-            dist = tukey_basis.from_eigenbasis(coeffs)
-            # dist = np.clip(dist, 0)
-            # if dist.min() < 0:
-            # dist += np.array([-dist.min(), 0]).max()
+            dist = basis.from_eigenbasis(coeffs)
             dist = dist / dist.sum()
-            coeffs = tukey_basis.to_eigenbasis(dist)
+            coeffs = basis.to_eigenbasis(dist)
             params["log_dist"][k] = coeffs
 
     if "spectra" in params.keys():
@@ -515,27 +305,30 @@ def loss_fn(model, exp, args={"reg_dict": {}}):
     likelihood = -np.nanmean(exp.mv_zscore(model))
 
     # prior on the sum
-    if not exp.calibrator:
-        dist = model.get_distribution(exp)
-        prior = 10000 * jax.nn.relu(-dist).sum()
-        # prior = loLU(-dist).sum()
-    else:
-        prior = 0
+    dist = model(exp)
+    # total_sum = dist.sum()
+    # prior = -jax.scipy.stats.norm.logpdf(total_sum, loc=1.0, scale=0.00001)
+    prior = 0
+    prior += loLU(-dist).sum()
+    prior += (
+        dorito.stats.apply_regularisers(model, exp, args) if not exp.calibrator else 0.0
+    )
+    # prior = 1e6 * jax.nn.relu(-dist).sum()
     return likelihood + prior, ()
 
 
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 6000
+n_epoch = 12000
 
 config = {
-    "positions": sgd(5e-2, 0),
+    "positions": sgd(5e-2, 0, (500, 0.)),
     "fluxes": sgd(1e-2, 0),
-    "aberrations": sgd(5e-1, 5),
+    # "aberrations": sgd(5e-1, 5),
     # "log_dist": adam(5e-2, 10),
-    "log_dist": adam(1e-4, 15, (100, 2)),
-    "spectra": sgd(2e-1, 50),
+    "log_dist": adam(1e-5, 15),
+    "spectra": sgd(5e-2, 500),
 }
 
 
@@ -561,7 +354,7 @@ print("Populating fishers...")
 trainer = trainer.populate_fishers(
     # model.set("detector.ramp.bleed", False).set("params", params),
     model,
-    fits,
+    fits[0:1],
     hessians=load_dict(cache + "jacobians.npy")["hessian"],
     parameters=[p for p in config.keys()],  # if p not in ["log_distribution"]],
 )
@@ -573,18 +366,29 @@ result = trainer.train(
     model=model,
     optimisers=config,
     epochs=n_epoch,
-    # batches=fits[0:1],  # Just the science
+    batches=fits[0:1],  # Just the science
     # batches=fits[-1:],  # Just the calibrator
-    batches=fits,
+    # batches=fits,
 )
 
 # %%
+
+np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
+result_model = result.model
+
+# balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
+# np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
+
 from dLux import utils as dlu
 
 optics_diameter = 6.603464  # JWST aperture diameter in meters
-wavel = 4.3e-6
+def eff_wavel(model, filt):
+    wavels, weights = model.filters[filt]
+    return np.dot(wavels, weights)
 
-for exp in fits:
+
+
+for exp in fits[0:1]:
 
     if exp.calibrator:
         continue
@@ -595,32 +399,26 @@ for exp in fits:
         ax,
         dist,
         pixel_scale=model.psf_pixel_scale / model.oversample,
-        # cmap="seismic",
-        # roll_angle_degrees=-exp.parang,
-        # norm=mpl.colors.LogNorm(vmin=1e-5),
-        # norm=mpl.colors.CenteredNorm(),
-        norm=None,
-        # norm=mpl.colors.PowerNorm(1.0, vmin=0),
-        diff_lim=dlu.rad2arcsec(wavel / optics_diameter),
-        # scale=1.5,
+        norm=mpl.colors.LogNorm(vmin=1e-5),
+        diff_lim=dlu.rad2arcsec(eff_wavel(model, exp.filter) / optics_diameter),
     )
 
     fig.colorbar(c0)
 
-    ax.set(title=f"Io - {exp.key}")  #   xticks=ticks, yticks=ticks)
+    ax.set(title=f"NGC1068 - {exp.key}")  #   xticks=ticks, yticks=ticks)
 
     plt.tight_layout()
     plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
     plt.close()
 
+for exp in fits[0:1]:
+    exp.print_summary()
+    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
+
 amigo.plotting.plot_losses(
     result.losses[0], start=int(n_epoch * 0.75), save_path=output_path
 )
 amigo.plotting.plot(result.history, save_path=output_path)
-
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
 
 # # %%
 # fft = np.fft.fftshift(np.fft.fft2(dist))

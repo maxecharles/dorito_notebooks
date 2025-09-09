@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ehtplot
 import scienceplots
+from scipy.ndimage import binary_dilation
 # import cmasher as cmr
 
 # import sys
@@ -88,9 +89,32 @@ file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
 )
 
 from datetime import datetime
+form = "%d-%m-%y_%H-%M-%S.%f"
+now = datetime.now()
+datetime_str = now.strftime(form)
 
-now = datetime.now().replace(second=0, microsecond=0)
-datetime_str = now.strftime("%d-%m-%y_%H-%M")
+# clear directory of empty folders
+for folder in os.listdir(output_path):
+    folder_dir = os.path.join(output_path, folder)
+
+    # skip if not a directory
+    if not os.path.isdir(folder_dir):
+        continue
+
+    # if the folder is empty
+    if len(os.listdir(folder_dir)) == 0:
+
+        try:
+            then = datetime.strptime(folder, form)
+                
+            # remove empty folder if it is older than 1 hour
+            if (now - then).seconds > 3600:  # 1 hour
+                print(f"Removing empty folder: {folder_dir}")
+                os.rmdir(folder_dir)
+        except ValueError:
+            # if the folder name is not in the correct format, skip it
+            print(f"Deleting folder: {folder_dir} (not in correct format)")
+            os.rmdir(folder_dir)
 
 # datetime_str = f"{i}_groups"
 print(datetime_str)
@@ -127,9 +151,14 @@ for file in files:
     file["BADPIX"].data[:3, :] = 1
     file["BADPIX"].data[-3:, :] = 1
     # file["BADPIX"].data[36:66, :25] = 1  # BACKGROUND STAR?
-    # file["BADPIX"].data[40, 45] = 1  # MIDDLE PIXELS
 
     if not bool(file[0].header["IS_PSF"]):
+        # file["BADPIX"].data[40, 45] = 1  # MIDDLE PIXELS
+        badpix = np.array(file["BADPIX"].data, dtype=bool)
+        im = np.array(file["SLOPE"].data.sum(0))
+        im = np.where(badpix, np.nan, im)
+        mask = binary_dilation(im == np.nanmax(im), iterations=2)
+        file["BADPIX"].data += mask.astype(int)
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 228337"
@@ -221,10 +250,12 @@ model = amigo.core_models.AmigoModel(
 # for exp in exposures:
 #     exp.print_summary()
 #     amigo.plotting.summarise_fit(model, exp, residuals=False)
+import shutil
+shutil.copy(__file__, output_path + '/script.py') 
 
 # %%
 print("Training...")
-n_epoch = 10000
+n_epoch = 20000
 
 config = {
     "positions": sgd(5e-1, 0, (10, 0.1), (500, 0)),
@@ -288,7 +319,7 @@ for exp in exposures:
     print(exp.star)
     amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
 
-
+np.save(output_path + "params_postgd.npy", result.model.params, allow_pickle=True)
 # %%
 stars = list(set([exp.star for exp in exposures]))
 
@@ -441,7 +472,7 @@ except Exception as e:
 
 # %%
 import jax.tree as jtu
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 from amigo.fisher import FIM
 
 

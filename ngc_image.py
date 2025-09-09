@@ -278,9 +278,9 @@ model = dorito.models.ResolvedAmigoModel(
 )
 
 # %%
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
+# for exp in fits:
+#     exp.print_summary()
+#     amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
 
 import shutil
 shutil.copy(__file__, output_path + '/script.py') 
@@ -316,7 +316,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 6000
+n_epoch = 10000
 
 config = {
     "positions": sgd(5e-2, 0),

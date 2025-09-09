@@ -128,12 +128,13 @@ for file in files:
     file["BADPIX"].data[28, 18] = 1
     file["BADPIX"].data[32, 10] = 1
 
-    file["BADPIX"].data[:, :3] = 1
-    file["BADPIX"].data[:, -3:] = 1
-    file["BADPIX"].data[:3, :] = 1
-    file["BADPIX"].data[-3:, :] = 1
+    file["BADPIX"].data[:, :10] = 1
+    file["BADPIX"].data[:, -10:] = 1
+    file["BADPIX"].data[:10, :] = 1
+    file["BADPIX"].data[-10:, :] = 1
 
     if not bool(file[0].header["IS_PSF"]):
+        file["BADPIX"].data[43, 45] = 1
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 228337"
