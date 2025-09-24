@@ -64,7 +64,11 @@ FILTERS = [
 # ]
 
 # idx = int(sys.argv[1])
-# FILTERS = FILTERS[idx]
+# setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), 
+#          (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9)]
+
+# i, j = setup[idx]
+# FILTERS = FILTERS[i]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -107,7 +111,12 @@ for folder in os.listdir(output_path):
 # datetime_str = f"{i}_groups"
 print(datetime_str)
 
-output_path = os.path.join(output_path, datetime_str) + "/"
+job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+
+batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+output_path = os.path.join(output_path, job_id) + f"/{batch_idx}/"
+
+# output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
@@ -173,7 +182,6 @@ for file in files:
 
 # %%
 
-
 class DynamicResolvedFit(dorito.model_fits.ResolvedFit):
     """
     Model fit for resolved sources where each exposure has a different
@@ -230,7 +238,7 @@ class MonthPointFit(OsampPointFit):
         return super().get_key(param)
 
 
-class MonthResolvedFit(DynamicResolvedFit):
+class MonthResolvedFit(dorito.model_fits.ResolvedFit):
 
     date: str  # isot
     month: str
@@ -296,12 +304,17 @@ for exp in fits:
         pos_keys.append(exp.map_param("positions"))
         spc_keys.append(exp.map_param("spectra"))
 
+from jax_gaussian import gaussian_filter
+sigs = np.concat((np.array([1e-16,]), np.linspace(0.01, 0.4, 14)))
+sig = float(sigs[int(batch_idx)])
+# sig = 0.25
 
 def norm_fn(model_params, args):
     params = model_params.params
     if "log_dist" in params.keys():
         for k, log_dist in params["log_dist"].items():
             distribution = 10**log_dist
+            distribution = gaussian_filter(distribution, sigma=sig)
             params["log_dist"][k] = np.log10(distribution / distribution.sum())
 
     if "spectra" in params.keys():
@@ -325,7 +338,7 @@ config = {
     "fluxes": sgd(2e-1, 0),
     "aberrations": sgd(3e-2, 4),
     "spectra": sgd(2e-1, 10),
-    "log_dist": adam(1e-2, 30),
+    "log_dist": adam(5e-2, 30),
 }
 
 
@@ -338,14 +351,19 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
+# tvs = [1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 1e5]
+# mes = [1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5, 5e5, 1e6, 5e6, 1e7]
+# tsvs = np.concat((np.array([0]), np.logspace(-3, 5, 14)))
 args = {
     "reg_dict": {
-        # "ME": (3e1, dorito.stats.ME),
+        # "ME": (mes[int(batch_idx)], dorito.stats.ME),
+        # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
+        # "TV": (tvs[int(batch_idx)], dorito.stats.TV),
     }
 }
 
 trainer = amigo.fitting.Trainer(
-    # loss_fn=dorito.stats.ramp_regularised_loss_fn,
+    loss_fn=dorito.stats.ramp_regularised_loss_fn,
     norm_fn=norm_fn,
     grad_fn=grad_fn,
     cache=os.path.join(amigo_cache, "fishers/"),
@@ -375,6 +393,10 @@ result = trainer.train(
 # %%
 np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
+
+balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
+np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
+
 
 # np.save(output_path + "history.npy", result.history.params, allow_pickle=True)
 

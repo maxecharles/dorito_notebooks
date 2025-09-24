@@ -275,13 +275,13 @@ def grad_fn(model, grads, args):
     return grads, args
 
 # tsvs = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
-tvs = [0., 2e-2, 5e-2, 1e-1, 2e-1, 5e-1, 8e-1, 1e0, 2e0, 5e0, 1e1, 2e1, 5e1, 1e2, 5e2]
-# # mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
+# tvs = [0., 2e-2, 5e-2, 1e-1, 2e-1, 5e-1, 8e-1, 1e0, 2e0, 5e0, 1e1, 2e1, 5e1, 1e2, 5e2]
+mes = [1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5, 5e5, 1e6, 5e6, 1e7]
 args = {
     "reg_dict": {
-        "TV": (tvs[int(batch_idx)], dorito.stats.TV),
+        # "TV": (tvs[int(batch_idx)], dorito.stats.TV),
         # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
-        # "ME": (mes[int(batch_idx)], dorito.stats.ME),
+        "ME": (mes[int(batch_idx)], dorito.stats.ME),
     }
 }
 

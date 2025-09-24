@@ -53,24 +53,25 @@ cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
-FILTERS = [
-    "F480M",
-    # "F430M",
-    # "F380M",
-]
 # FILTERS = [
-#     ["F480M"],
-#     ["F430M"],
-#     ["F380M"],
+#     # "F480M",
+#     # "F430M",
+#     # "F380M",
 # ]
+FILTERS = [
+    ["F480M"],
+    ["F430M"],
+    ["F380M"],
+]
 
-# idx = int(sys.argv[1])
-# setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), 
-#          (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9),
-#          (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9)]
+idx = int(sys.argv[1])
+setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), (0, 10), (0, 11), (0, 12), (0, 13), (0, 14), (0, 15), (0, 16), (0, 17), (0, 18), (0, 19),
+         (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12), (1, 13), (1, 14), (1, 15), (1, 16), (1, 17), (1, 18), (1, 19),
+         (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9), (2, 10), (2, 11), (2, 12), (2, 13), (2, 14), (2, 15), (2, 16), (2, 17), (2, 18), (2, 19),]
 
-# i, j = setup[idx]
-# FILTERS = FILTERS[i]
+i, j = setup[idx]
+FILTERS = FILTERS[i]
+batch_idx = int(j)
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -272,12 +273,11 @@ cal_fits = [YearPointFit(file, use_cov=True) for file in cal_files]
 # fits = [fit for fit in sci_fits if fit.dither == "1"] + [
 #     fit for fit in cal_fits if fit.dither == "1"
 # ]
-fits = sci_fits[0:1] + cal_fits[0:1]
-# fits = sci_fits + cal_fits
+fits = sci_fits + cal_fits
 
-abbs = np.load(abers_dir+"ngc_abbs.npy", allow_pickle=True).item()
-state = load_dict(cache + "calibration.npy")
-state["aberrations"]["F480M"] = abbs["aberrations"]["01260_F480M"]
+# abbs = np.load(abers_dir+"ngc_abbs.npy", allow_pickle=True).item()
+# state = load_dict(cache + "calibration.npy")
+# state["aberrations"]["F480M"] = abbs["aberrations"]["01260_F480M"]
 
 # building the model
 model = dorito.models.ResolvedAmigoModel(
@@ -313,9 +313,9 @@ for exp in fits:
 
 
 from jax_gaussian import gaussian_filter
-# sigs = np.concat((np.array([1e-16,]), np.linspace(0.05, 0.7, 14)))
-# sig = float(sigs[int(batch_idx)])
-sig = 0.25
+sigs = np.concat((np.array([1e-16,]), np.linspace(0.01, 0.4, 14)))
+sig = float(sigs[int(batch_idx)])
+# sig = 0.25
 def norm_fn(model_params, args):
     params = model_params.params
     if "log_dist" in params.keys():
@@ -336,12 +336,12 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 15000
+n_epoch = 20000
 
 config = {
     "positions": sgd(5e-2, 0),
     "fluxes": sgd(5e-2, 5),
-    # "aberrations": sgd(2e-1, 10),
+    "aberrations": sgd(2e-1, 10),
     "log_dist": adam(1e-3, 10,),
     "spectra": sgd(2e-1, 500),
     # "amplitudes": sgd(5e-1, 50),
@@ -360,13 +360,15 @@ def grad_fn(model, grads, args):
     return grads, args
 
 
-tvs = [1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 1e5]
-# mes = [1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3]
+# tvs = [1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 1e5]
+# mes = [1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5, 5e5, 1e6, 5e6, 1e7]
+# tvs = np.concat((np.array([0]), np.logspace(-3, 2, 14)))
+mes = np.concat((np.array([0]), np.logspace(-3, 3, 19)))
 args = {
     "reg_dict": {
-        # "ME": (mes[int(j)], dorito.stats.ME),
+        "ME": (mes[int(batch_idx)], dorito.stats.ME),
         # "TSV": (tsvs[int(j)], dorito.stats.TSV),
-        "TV": (tvs[int(batch_idx)], dorito.stats.TV),
+        # "TV": (tvs[int(batch_idx)], dorito.stats.TV),
     }
 }
 
@@ -381,19 +383,19 @@ print("Populating fishers...")
 trainer = trainer.populate_fishers(
     # model.set("detector.ramp.bleed", False).set("params", params),
     model,
-    fits[0:1],
+    fits,
     hessians=load_dict(cache + "jacobians.npy")["hessian"],
     parameters=[p for p in config.keys()],  # if p not in ["log_dist"]],
 )
 
-print("Number of exposures: ", len(fits[0:1]))
+print("Number of exposures: ", len(fits))
 
 # Train the model
 result = trainer.train(
     model=model,
     optimisers=config,
     epochs=n_epoch,
-    batches=fits[0:1],
+    batches=fits,
     args=args,
 )
 
@@ -418,7 +420,7 @@ def eff_wavel(model, filt):
     return np.dot(wavels, weights)
 
 
-for exp in fits[0:1]:
+for exp in fits:
 
     if exp.calibrator:
         continue
@@ -446,7 +448,7 @@ for exp in fits[0:1]:
     plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
     plt.close()
 
-for exp in fits[0:1]:
+for exp in fits:
     exp.print_summary()
     amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
 
