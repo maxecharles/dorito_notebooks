@@ -305,9 +305,9 @@ for exp in fits:
         spc_keys.append(exp.map_param("spectra"))
 
 from jax_gaussian import gaussian_filter
-sigs = np.concat((np.array([1e-16,]), np.linspace(0.01, 0.4, 14)))
-sig = float(sigs[int(batch_idx)])
-# sig = 0.25
+# sigs = np.concat((np.array([1e-16,]), np.linspace(0.01, 0.4, 14)))
+# sig = float(sigs[int(batch_idx)])
+sig = 0.25
 
 def norm_fn(model_params, args):
     params = model_params.params
@@ -353,12 +353,12 @@ def grad_fn(model, grads, args):
 
 # tvs = [1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 1e5]
 # mes = [1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5, 5e5, 1e6, 5e6, 1e7]
-# tsvs = np.concat((np.array([0]), np.logspace(-3, 5, 14)))
+tvs = np.concat((np.array([0]), np.logspace(-3, 5, 14)))
 args = {
     "reg_dict": {
         # "ME": (mes[int(batch_idx)], dorito.stats.ME),
         # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
-        # "TV": (tvs[int(batch_idx)], dorito.stats.TV),
+        "TV": (tvs[int(batch_idx)], dorito.stats.TV),
     }
 }
 

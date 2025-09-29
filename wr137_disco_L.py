@@ -6,6 +6,7 @@ jax.config.update("jax_platform_name", "gpu")
 print(jax.local_devices()[0].device_kind)
 from jax import numpy as np
 import os
+import sys
 
 
 from zodiax.optimisation import sgd, adam
@@ -100,14 +101,13 @@ for folder in os.listdir(output_path):
 
 # datetime_str = f"{i}_groups"
 print(datetime_str)
-output_path = os.path.join(output_path, datetime_str) + "/"
+# output_path = os.path.join(output_path, datetime_str) + "/"
 
-# job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
 
-# batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
-# output_path = os.path.join(output_path, job_id) + f"/{batch_idx}/"
+batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+output_path = os.path.join(output_path, job_id) + f"/{batch_idx}/"
 
-# output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
@@ -189,11 +189,15 @@ shutil.copy(__file__, output_path + "/script.py")
 n_epoch = 20000
 config = {
     # "log_dist": adam(1e-1, 0, (5000, 0.3)),
-    "log_dist": adam(1e-3, 0),
+    "log_dist": adam(5e-3, 0),
 }
+
+mes = np.concat((np.array([0]), np.logspace(1, 7, 29)))
+
 args = {
     "reg_dict": {
-        "ME": (1e5, dorito.stats.ME),
+        "ME": (mes[int(batch_idx)], dorito.stats.ME),
+        # "ME": (1e5, dorito.stats.ME),
     }
 }
 
@@ -220,11 +224,39 @@ result = trainer.train(
     args=args,
 )
 
-np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
+# %%
+def disco_posterior_balance(model, exp, args={"reg_dict": {}}):
+    # this is per exposure
+    # NOTE this might not work for multiple regularisers
+
+    # regular likelihood term
+    likelihood = dorito.stats.oi_log_likelihood(model, exp)
+
+
+    # evaluating the regularisation term with each for each regulariser
+    priors = [fun(model, exp) for _, fun in args["reg_dict"].values()]
+    prior = np.array(priors).sum()
+
+    return likelihood, prior
+
+
+def disco_posterior_balances(model, exposures, args={"reg_dict": {}}):
+
+    balances = np.array([disco_posterior_balance(model, exp, args) for exp in exposures]).T
+
+    return {
+        "likelihoods": balances[0],
+        "priors": balances[1],
+        "exp_keys": [exp.key for exp in exposures],
+        "args": args,
+    }
+
+
+np.save(output_path + "prebfgs_params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
 
-# balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
-# np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
+balance_dict = disco_posterior_balances(result_model, ois, args)
+np.save(output_path + "prebfgs_balance.npy", balance_dict, allow_pickle=True)
 
 
 # %%
@@ -402,7 +434,11 @@ bfgs_model = joint_solve(
     atol=1e-4,
 )
 
+np.save(output_path + "params.npy", bfgs_model.params, allow_pickle=True)
+result_model = result.model
 
+balance_dict = disco_posterior_balances(bfgs_model, ois, args)
+np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
 # %%
 for oi in ois:
     dist = bfgs_model(oi)
@@ -477,3 +513,4 @@ for oi in ois:
     plt.tight_layout()
     plt.savefig(output_path + f"{oi.key}_postbfgs_dist.png", dpi=300)
     plt.close()
+
