@@ -63,9 +63,16 @@ cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 load_dict = lambda x: np.load(x, allow_pickle=True).item()
-cal_vis_outputs = load_dict(os.path.join(output_path, "all_cal_vis.npy"))
-
-print(cal_vis_outputs.keys())
+# discos = load_dict(os.path.join(output_path, "all_cal_vis.npy"))
+disco_path = os.path.join(output_path, f"5644707/")
+discos = {}
+for filt in os.listdir(disco_path):
+    disco = np.load(
+        os.path.join(disco_path, filt, "discos.npy"), allow_pickle=True
+    ).item()
+    for key, value in disco.items():
+        discos[key] = value
+print(discos.keys())
 
 # %%
 from datetime import datetime
@@ -116,23 +123,23 @@ print(f"Output path: {output_path}")
 optics_diameter = 6.603464  # JWST aperture diameter in meters
 otf_coords = dlu.pixel_coords(51, 2 * optics_diameter)
 
+
 ois = [
     dorito.model_fits.ResolvedOIFit(oi_data, key, filter=key[:5])
-    for key, oi_data in cal_vis_outputs.items()
+    for key, oi_data in discos.items()
 ]
-
-ois = [oi for oi in ois if oi.filter in ["F480M"]]
-ois = ois[1:]
+# print("OIS", ois)
+# ois = [oi for oi in ois if oi.filter in ["F480M"]]
 # ois = ois[1:3] + ois[4:]
 
 # model = Model(
-size = 151
+size = 161
 model = dorito.models.ResolvedDiscoModel(
     ois,
     distribution=np.ones((size, size)),
     uv_npixels=2 * otf_coords.shape[-1],
     uv_pscale=0.5 * np.diff(otf_coords[0, 0]).mean(),
-    oversample=6.0,
+    oversample=3.0,
     rotate=True,
 )
 
@@ -186,14 +193,14 @@ import shutil
 shutil.copy(__file__, output_path + "/script.py")
 
 # %%
-n_epoch = 20000
+n_epoch = 1000
 config = {
     # "log_dist": adam(1e-1, 0, (5000, 0.3)),
     "log_dist": adam(1e-3, 0),
 }
 args = {
     "reg_dict": {
-        "ME": (1e5, dorito.stats.ME),
+        # "ME": (1e5, dorito.stats.ME),
     }
 }
 
