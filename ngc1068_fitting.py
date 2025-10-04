@@ -6,7 +6,7 @@ jax.config.update("jax_platform_name", "gpu")
 print(jax.local_devices()[0].device_kind)
 from jax import numpy as np, random as jr, tree as jtu
 import os
-
+import sys
 
 from zodiax.optimisation import sgd, adam
 
@@ -24,11 +24,11 @@ from scipy.ndimage import binary_dilation
 
 # import sys
 
-# i = sys.argv[1]
-# i = int(sys.argv[1])
+batch_idx = int(sys.argv[1])
 # print(f"Running script with input {i}")
 # # ... your logic here ...
 # i = 5
+
 
 
 # matplotlib parameters
@@ -72,11 +72,11 @@ output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
 FILTERS = [
-    "F480M",
-    # "F430M",
-    # "F380M",
+    ["F480M"],
+    ["F430M"],
+    ["F380M"],
 ]
-# FILTERS = [i]
+FILTERS = FILTERS[batch_idx]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -119,7 +119,12 @@ for folder in os.listdir(output_path):
 # datetime_str = f"{i}_groups"
 print(datetime_str)
 
-output_path = os.path.join(output_path, datetime_str) + "/"
+job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+
+batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+output_path = os.path.join(output_path, job_id) + f"/{batch_idx}/"
+
+# output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
@@ -225,8 +230,8 @@ cal_exposures = [
 sci_exposures = [
     amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files
 ]
-exposures = cal_exposures[0:1] + sci_exposures[0:1]
-# exposures = cal_exposures + sci_exposures
+# exposures = cal_exposures[0:1] + sci_exposures[0:1]
+exposures = cal_exposures + sci_exposures
 # exposures = [
 #     exp.set("cov", fudge_cov(exp.cov, get_depth(exp, threshold=25_000)))
 #     for exp in exposures
@@ -255,7 +260,7 @@ shutil.copy(__file__, output_path + '/script.py')
 
 # %%
 print("Training...")
-n_epoch = 20000
+n_epoch = 5000
 
 config = {
     "positions": sgd(5e-1, 0, (10, 0.1), (500, 0)),
@@ -411,7 +416,7 @@ for exp in tqdm(exposures):
         print(f"Skipped {exp.key}")
         continue
     solver = optx.BFGS(rtol=1e-8, atol=1e-8)
-    sol = optx.minimise(fun, solver, initial_params, args, throw=False, max_steps=2048)
+    sol = optx.minimise(fun, solver, initial_params, args, throw=False, max_steps=2**14)
     sols_out[exp.key] = sol
 
     print("Final loss:", fun(sol.value, args))
@@ -546,6 +551,8 @@ np.save(output_path + f"visibilities", fit_outputs, allow_pickle=True)
 load_dict = lambda x: np.load(x, allow_pickle=True).item()
 cal_values = load_dict(cache + "calibration.npy")
 vis_basis = load_dict(cache + "vis_basis.npy")
+
+# fit = load_dict("/fred/oz440/max/data/amigo_files/outputs/NGC1068/01-10-25_12-57-48.200846/visibilities.npy")
 fit = load_dict(output_path + f"visibilities.npy")
 n_basis = fit.pop("n_basis")
 
@@ -558,9 +565,44 @@ vis_model = amigo.vis_models.LogVisModel(vis_basis, n_basis=n_basis)
 # %%
 # Sort the aberration values by their filter
 filters = sorted(list(set([fit_values["filter"] for fit_values in fit.values()])))
-aberrations = {k: [] for k in filters}
-for exp_key, fit_values in fit.items():
-    aberrations[fit_values["filter"]].append(fit_values["aberrations"])
+
+fit_2024 = {k: v for k, v in list(fit.items())[1:] if int(k[6:9]) < 5}
+fit_2025 = {k: v for k, v in list(fit.items())[1:] if int(k[6:9]) > 100}
+
+for exp in fit_2024.values():
+    exp["year"] = "24"
+
+for exp in fit_2025.values():
+    exp["year"] = "25"
+
+keys_2024 = sorted(
+    list(
+        set(
+            ["_".join([fit_values["filter"], "24"]) for fit_values in fit_2024.values()]
+        )
+    )
+)
+keys_2025 = sorted(
+    list(
+        set(
+            ["_".join([fit_values["filter"], "25"]) for fit_values in fit_2025.values()]
+        )
+    )
+)
+# print("ABKEYS")
+# print(keys_2024, keys_2025)
+# print()
+ab_keys = keys_2024 + keys_2025
+
+aberrations = {k: [] for k in ab_keys}
+for exp_key, fit_values in fit_2024.items():
+    aberrations["_".join([fit_values["filter"], "24"])].append(
+        fit_values["aberrations"]
+    )
+for exp_key, fit_values in fit_2025.items():
+    aberrations["_".join([fit_values["filter"], "25"])].append(
+        fit_values["aberrations"]
+    )
 
 # Get the mean aberration value per filter
 leaf_fn = lambda x: isinstance(x, list)
@@ -583,82 +625,86 @@ kernel_outputs = {}
 for filt in tqdm(filters):
     optics = optics.set("defocus", cal_values["defocus"][filt])
 
-    model_params = ModelParams(
-        {
-            # Note we dont need to marginalise over positions - its subsumed by abbs
-            "defocus": cal_values["defocus"][filt],
-            "spectra": np.zeros(1),
-            "fluxes": np.zeros(1),
-            "abb_coeffs": aberrations[filt],
+    for year in ["24", "25"]:
+
+        ab_key = "_".join([filt, year])
+
+        model_params = amigo.core_models.ModelParams(
+            {
+                # Note we dont need to marginalise over positions - its subsumed by abbs
+                "defocus": cal_values["defocus"][filt],
+                "spectra": np.zeros(1),
+                "fluxes": np.zeros(1),
+                "abb_coeffs": aberrations[ab_key],
+            }
+        )
+
+        jac_fn = lambda X: vis_jac_fn(X, (optics, vis_model, filt))
+        amp_fn, phase_fn = lambda X: jac_fn(X)[0], lambda X: jac_fn(X)[1]
+        J_amp = model_params.jacfwd(amp_fn, n_batch=5)
+        J_phase = model_params.jacfwd(phase_fn, n_batch=5)
+
+        # Get the Jacobian decompositions
+        u_amp, s_amp, vh_amp = amigo.stats.svd(J_amp)
+        u_phase, s_phase, vh_phase = amigo.stats.svd(J_phase)
+
+        n_amp = len(s_amp) - np.sum(s_amp < thresh)
+        n_phase = len(s_phase) - np.sum(s_phase < thresh)
+
+        kernel_outputs[ab_key] = {
+            "kernel_mats": {
+                "amplitudes": u_amp[:, n_amp:].T,
+                "phases": u_phase[:, n_phase:].T,
+            },
+            "proj_mats": {
+                "amplitudes": u_amp[:, : len(s_amp)].T,
+                "phases": u_phase[:, : len(s_phase)].T,
+            },
+            "J_mats": {
+                "amplitudes": J_amp,
+                "phases": J_phase,
+            },
+            "singular_vals": {
+                "amplitudes": s_amp,
+                "phases": s_phase,
+            },
         }
-    )
-
-    jac_fn = lambda X: vis_jac_fn(X, (optics, vis_model, filt))
-    amp_fn, phase_fn = lambda X: jac_fn(X)[0], lambda X: jac_fn(X)[1]
-    J_amp = model_params.jacfwd(amp_fn, n_batch=30)
-    J_phase = model_params.jacfwd(phase_fn, n_batch=30)
-
-    # Get the Jacobian decompositions
-    u_amp, s_amp, vh_amp = svd(J_amp)
-    u_phase, s_phase, vh_phase = svd(J_phase)
-
-    n_amp = len(s_amp) - np.sum(s_amp < thresh)
-    n_phase = len(s_phase) - np.sum(s_phase < thresh)
-
-    # NOTE: After deleting the rows/cols, the matrix is NOT symmetric, so its inverse
-    # is NOT the same as the transpose.
-    kernel_outputs[filt] = {
-        "kernel_mats": {
-            "amplitudes": u_amp[:, n_amp:].T,
-            "phases": u_phase[:, n_phase:].T,
-        },
-        "proj_mats": {
-            "amplitudes": u_amp[:, : len(s_amp)].T,
-            "phases": u_phase[:, : len(s_phase)].T,
-        },
-        "J_mats": {
-            "amplitudes": J_amp,
-            "phases": J_phase,
-        },
-        "singular_vals": {
-            "amplitudes": s_amp,
-            "phases": s_phase,
-        },
-    }
-
+# print("KERNEL OUTPUTS")
+# print(kernel_outputs.keys())
+# print()
 # %% [markdown]
 # Plotting the singular values.
 
 # %%
 plt.figure(figsize=(12, 4))
-for i, filt in enumerate(filters):
-    s_amp = kernel_outputs[filt]["singular_vals"]["amplitudes"]
-    s_phase = kernel_outputs[filt]["singular_vals"]["phases"]
+for i, ab_key in enumerate(ab_keys):
+    s_amp = kernel_outputs[ab_key]["singular_vals"]["amplitudes"]
+    s_phase = kernel_outputs[ab_key]["singular_vals"]["phases"]
 
-    plt.title(filt)
-    plt.plot(s_amp, label=f"{filt} amplitude", c=f"C{i}", alpha=0.5)
-    plt.plot(s_phase, label=f"{filt} phase", ls="--", c=f"C{i}", alpha=0.5)
+    plt.title(ab_key)
+    plt.plot(s_amp, label=f"{ab_key} amplitude", c=f"C{i}", alpha=0.5)
+    plt.plot(s_phase, label=f"{ab_key} phase", ls="--", c=f"C{i}", alpha=0.5)
     plt.yscale("log")
 
 plt.axhline(thresh, ls="--", c="k", alpha=0.5, label="Threshold")
 plt.legend()
 plt.tight_layout()
 plt.savefig(output_path + "singular_values.png")
-plt.close()
+plt.show()
 
 # %% [markdown]
 # Plotting the Jacobian responses.
 
 # %%
-for filt in filters[:1]:
-    lat_amp_Js = kernel_outputs[filt]["J_mats"]["amplitudes"]
-    lat_phase_Js = kernel_outputs[filt]["J_mats"]["phases"]
+for ab_key in ab_keys:
+    lat_amp_Js = kernel_outputs[ab_key]["J_mats"]["amplitudes"]
+    lat_phase_Js = kernel_outputs[ab_key]["J_mats"]["phases"]
 
     plt.figure(figsize=(25, 8))
-    plt.suptitle(filt)
+    plt.suptitle(ab_key)
     for i in range(5):
         log_amp, phase = vis_model.latent_to_im(
-            lat_amp_Js[:, i], lat_phase_Js[:, i], filt
+            lat_amp_Js[:, i], lat_phase_Js[:, i], ab_key[:-3]
         )
 
         v = np.nanmax(np.abs(log_amp))
@@ -675,44 +721,43 @@ for filt in filters[:1]:
 
     plt.tight_layout()
     plt.savefig(output_path + f"{filt}_J_mats.png")
-    plt.close()
-
+    plt.show()
 # %% [markdown]
 # Plotting the projection matrices.
 
 # %%
-for filt in filters[:1]:
-    amp_vecs = kernel_outputs[filt]["proj_mats"]["amplitudes"]
-    phase_vecs = kernel_outputs[filt]["proj_mats"]["phases"]
+for ab_key in ab_keys:
+    amp_vecs = kernel_outputs[ab_key]["proj_mats"]["amplitudes"]
+    phase_vecs = kernel_outputs[ab_key]["proj_mats"]["phases"]
 
     plt.figure(figsize=(25, 8))
-    plt.suptitle(filt)
     for i in range(5):
         log_amp, phase = vis_model.latent_to_im(amp_vecs[i], phase_vecs[i], filt)
 
         v = np.nanmax(np.abs(log_amp))
         plt.subplot(2, 5, i + 1)
-        plt.title(f"Projection (log amp) {i}")
+        plt.title(f"Inv K amp {i}")
         plt.imshow(log_amp, seismic, vmin=-v, vmax=v)
         plt.colorbar()
 
         v = np.nanmax(np.abs(phase))
         plt.subplot(2, 5, i + 6)
-        plt.title(rf"Projection  Phase) {i}")
+        plt.title(f"Inv K Phase {i}")
         plt.imshow(phase, seismic, vmin=-v, vmax=v)
         plt.colorbar()
 
     plt.tight_layout()
+    plt.savefig(output_path + f"{filt}_proj_mats.png")
     plt.show()
 
 # %% [markdown]
 # Plotting the kernel matrices.
 
 # %%
-for filt in filters:
+for ab_key in ab_keys:
 
-    amp_vecs = kernel_outputs[filt]["kernel_mats"]["amplitudes"]
-    phase_vecs = kernel_outputs[filt]["kernel_mats"]["phases"]
+    amp_vecs = kernel_outputs[ab_key]["kernel_mats"]["amplitudes"]
+    phase_vecs = kernel_outputs[ab_key]["kernel_mats"]["phases"]
 
     plt.figure(figsize=(25, 8))
     for i in range(5):
@@ -732,7 +777,7 @@ for filt in filters:
 
     plt.tight_layout()
     plt.savefig(output_path + f"{filt}_kernel_mats.png")
-    plt.close()
+    plt.show()
 
 
 # %%
@@ -742,18 +787,24 @@ from amigo.vis_calibration import get_mean_wavelength, average_vis_fits, calibra
 # Calibrate all the science stars with all the calibrators
 cal_stars = list(set([vals["star"] for vals in fit.values() if vals["calibrator"]]))
 sci_stars = list(set([vals["star"] for vals in fit.values() if not vals["calibrator"]]))
-
-# sci_stars = ["PDS-70"]
-# sci_stars = ["HD-100546"]
-# sci_stars = ["HD-135344B"]
 stars = sci_stars + cal_stars
 
 
 # Populate the fit dict with the extra values we need
+fit = {**fit_2024, **fit_2025}
+
+# print("PRINTING FIT")
+# print(fit.keys())
+# print(fit)
+
 for key, vals in fit.items():
     filt = vals["filter"]
-    amp_K = kernel_outputs[filt]["kernel_mats"]["amplitudes"]
-    phase_K = kernel_outputs[filt]["kernel_mats"]["phases"]
+    year = vals["year"]
+
+    key = "_".join([filt, year])
+
+    amp_K = kernel_outputs[key]["kernel_mats"]["amplitudes"]
+    phase_K = kernel_outputs[key]["kernel_mats"]["phases"]
 
     full_cov = np.linalg.inv(vals["fishers"])
     amp_cov = full_cov[:n_basis, :n_basis]
@@ -774,101 +825,152 @@ for key, vals in fit.items():
 # Average over the multiple exposures
 vis_outputs = {}
 for i, filt in enumerate(filters):
-    for is_cal in [True, False]:
-        # Get the list of fits to the right star and filter
-        stars_in = cal_stars if is_cal else sci_stars
-        star_type = "cal" if is_cal else "sci"
-        vis_fits = [
-            vals
-            for vals in fit.values()
-            if vals["star"] in stars_in and vals["filter"] == filt
-        ]
+    for year in ["24", "25"]:
+        for is_cal in [True, False]:
+            # Get the list of fits to the right star and filter
+            stars_in = cal_stars if is_cal else sci_stars
+            star_type = "cal" if is_cal else "sci"
 
-        # Ensure we actually have fits to this star/filter
-        if len(vis_fits) == 0:
-            continue
+            vis_fits = [
+                vals
+                for vals in fit.values()
+                if vals["star"] in stars_in
+                and vals["filter"] == filt
+                and vals["year"] == year
+            ]
 
-        # Average the fits
-        vis_outputs[f"{star_type}_{filt}"] = average_vis_fits(vis_fits)
+            # Ensure we actually have fits to this star/filter
+            if len(vis_fits) == 0:
+                print(f"No fits for {star_type}_{filt}_{year}")
+                continue
+            else:
+                print(f"Yes fits for {star_type}_{filt}_{year}")
+
+            # Average the fits
+            vis_outputs[f"{star_type}_{filt}_{year}"] = average_vis_fits(vis_fits)
+
+
+def calibrate_vis(vis_outputs, filt, year, kernel=True):
+
+    if kernel:
+        k_type = "K_"
+    else:
+        k_type = ""
+    # Calibrator values
+    cal_key = f"cal_{filt}_{year}"
+    cal_amp = vis_outputs[cal_key][f"{k_type}vis"]
+    cal_phase = vis_outputs[cal_key][f"{k_type}phi"]
+    cal_amp_cov = vis_outputs[cal_key][f"{k_type}vis_cov"]
+    cal_phase_cov = vis_outputs[cal_key][f"{k_type}phi_cov"]
+
+    # Science values
+    sci_key = f"sci_{filt}_{year}"
+    sci_amp = vis_outputs[sci_key][f"{k_type}vis"]
+    sci_phase = vis_outputs[sci_key][f"{k_type}phi"]
+    sci_amp_cov = vis_outputs[sci_key][f"{k_type}vis_cov"]
+    sci_phase_cov = vis_outputs[sci_key][f"{k_type}phi_cov"]
+
+    # Calibrate
+    amp, amp_cov = amigo.vis_calibration.calibrate_phases(
+        sci_amp, cal_amp, sci_amp_cov, cal_amp_cov
+    )
+    phase, phase_cov = amigo.vis_calibration.calibrate_phases(
+        sci_phase, cal_phase, sci_phase_cov, cal_phase_cov
+    )
+
+    return {
+        f"{k_type}vis": amp,
+        f"{k_type}vis_cov": amp_cov,
+        f"{k_type}phi": phase,
+        f"{k_type}phi_cov": phase_cov,
+    }
+
 
 # Calibrate the outputs
 cal_vis_outputs = {}
 for i, filt in enumerate(filters):
-    sci_key = f"sci_{filt}"
-    cal_key = f"cal_{filt}"
-    keys = vis_outputs.keys()
-    if sci_key not in keys or cal_key not in keys:
-        continue
+    for year in ["24", "25"]:
 
-    # Make sure we aren't averaging over roll angles
-    parang_std = vis_outputs[sci_key]["parangs"].std(0)
-    assert parang_std < 0.1
+        key = "_".join([filt, year])
 
-    # Calibrate the visibilities
-    k_cal_vis_dict = calibrate_vis(vis_outputs, filt, kernel=True)
-    cal_vis_dict = calibrate_vis(vis_outputs, filt, kernel=False)
+        sci_key = f"sci_{filt}_{year}"
+        cal_key = f"cal_{filt}_{year}"
+        keys = vis_outputs.keys()
+        if sci_key not in keys or cal_key not in keys:
+            print(f"Missing keys for {filt}: {sci_key} or {cal_key}")
+            continue
 
-    # Projection matrices
-    V_amp = vis_model.V_amp[filt]
-    V_phase = vis_model.V_phase[filt]
-    K_amp_op = kernel_outputs[filt]["kernel_mats"]["amplitudes"]
-    K_phase_op = kernel_outputs[filt]["kernel_mats"]["phases"]
+        # Make sure we aren't averaging over roll angles
+        parang_std = vis_outputs[sci_key]["parangs"].std(0)
+        assert parang_std < 0.1
 
-    # Orthogonalise the visibilities
-    K_vis = k_cal_vis_dict["K_vis"]
-    K_phi = k_cal_vis_dict["K_phi"]
-    K_vis_cov = k_cal_vis_dict["K_vis_cov"]
-    K_phi_cov = k_cal_vis_dict["K_phi_cov"]
+        # Calibrate the visibilities
+        k_cal_vis_dict = calibrate_vis(vis_outputs, filt, year, kernel=True)
+        cal_vis_dict = calibrate_vis(vis_outputs, filt, year, kernel=False)
 
-    # Orthogonalise the kernel visibilities
-    o_vis, o_vis_cov, o_vis_mat, o_vis_eigv = orthogonalise(K_vis, K_vis_cov)
-    o_phi, o_phi_cov, o_phi_mat, o_phi_eigv = orthogonalise(K_phi, K_phi_cov)
+        # Projection matrices
+        V_amp = vis_model.V_amp[filt]
+        V_phase = vis_model.V_phase[filt]
+        K_amp_op = kernel_outputs[key]["kernel_mats"]["amplitudes"]
+        K_phase_op = kernel_outputs[key]["kernel_mats"]["phases"]
 
-    # Build the disco matrices
-    disco_vis_mat = build_disco(V_amp, K_amp_op, o_vis_mat)
-    disco_phi_mat = build_disco(V_phase, K_phase_op, o_phi_mat)
+        # Orthogonalise the visibilities
+        K_vis = k_cal_vis_dict["K_vis"]
+        K_phi = k_cal_vis_dict["K_phi"]
+        K_vis_cov = k_cal_vis_dict["K_vis_cov"]
+        K_phi_cov = k_cal_vis_dict["K_phi_cov"]
 
-    # Save the Orthonormal calibrated Kernel Observables (Ockos)
-    o_cal_vis_dict = {
-        "O_vis": o_vis,
-        "O_phi": o_phi,
-        "O_vis_cov": o_vis_cov,
-        "O_phi_cov": o_phi_cov,
-        "O_vis_mat": o_vis_mat,
-        "O_phi_mat": o_phi_mat,
-        "O_vis_eigv": o_vis_eigv,
-        "O_phi_eigv": o_phi_eigv,
-        "disco_vis_mat": disco_vis_mat,
-        "disco_phi_mat": disco_phi_mat,
-    }
+        # Orthogonalise the kernel visibilities
+        o_vis, o_vis_cov, o_vis_mat, o_vis_eigv = orthogonalise(K_vis, K_vis_cov)
+        o_phi, o_phi_cov, o_phi_mat, o_phi_eigv = orthogonalise(K_phi, K_phi_cov)
 
-    # uv coordinates
-    parang = vis_outputs[sci_key]["parangs"].mean(0)
-    wavel = vis_outputs[sci_key]["wavels"].mean(0)
+        # Build the disco matrices
+        disco_vis_mat = build_disco(V_amp, K_amp_op, o_vis_mat)
+        disco_phi_mat = build_disco(V_phase, K_phase_op, o_phi_mat)
 
-    # Get the coordinates
-    n = vis_model.n_knots**2 // 2
-    u, v = vis_model.otf_coords.reshape(2, -1)[:, :n]
-    u, v = dlu.rotate_coords(np.array([u, -v]), -dlu.deg2rad(parang))
+        # Save the Orthonormal calibrated Kernel Observables (Ockos)
+        o_cal_vis_dict = {
+            "O_vis": o_vis,
+            "O_phi": o_phi,
+            "O_vis_cov": o_vis_cov,
+            "O_phi_cov": o_phi_cov,
+            "O_vis_mat": o_vis_mat,
+            "O_phi_mat": o_phi_mat,
+            "O_vis_eigv": o_vis_eigv,
+            "O_phi_eigv": o_phi_eigv,
+            "disco_vis_mat": disco_vis_mat,
+            "disco_phi_mat": disco_phi_mat,
+        }
 
-    sci_outputs = {
-        "u": u,
-        "v": v,
-        "vis_mat": V_amp,
-        "phi_mat": V_phase,
-        "K_vis_mat": K_amp_op,
-        "K_phi_mat": K_phase_op,
-        "parang": parang,
-        "wavel": wavel,
-    }
+        # uv coordinates
+        parang = vis_outputs[sci_key]["parangs"].mean(0)
+        wavel = vis_outputs[sci_key]["wavels"].mean(0)
 
-    cal_vis_dict = {**sci_outputs, **o_cal_vis_dict, **k_cal_vis_dict, **cal_vis_dict}
-    cal_vis_outputs[filt] = cal_vis_dict
+        # Get the coordinates
+        n = vis_model.n_knots**2 // 2
+        u, v = vis_model.otf_coords.reshape(2, -1)[:, :n]
+        u, v = dlu.rotate_coords(np.array([u, -v]), -dlu.deg2rad(parang))
 
+        sci_outputs = {
+            "u": u,
+            "v": v,
+            "vis_mat": V_amp,
+            "phi_mat": V_phase,
+            "K_vis_mat": K_amp_op,
+            "K_phi_mat": K_phase_op,
+            "parang": parang,
+            "wavel": wavel,
+            "year": year
+        }
 
-# np.save(f"{file_path}/results/GTO1242/cal_vis", cal_vis_outputs, allow_pickle=True)
-# np.save(f"{file_path}/results/GO1843/cal_vis", cal_vis_outputs, allow_pickle=True)
-np.save(output_path + "discos.npy", cal_vis_outputs, allow_pickle=True)
+        cal_vis_dict = {
+            **sci_outputs,
+            **o_cal_vis_dict,
+            **k_cal_vis_dict,
+            **cal_vis_dict,
+        }
+        cal_vis_outputs[f"{filt}_{year}"] = cal_vis_dict
+np.save(output_path + f"discos.npy", cal_vis_outputs, allow_pickle=True)
 
 # %% [markdown]
 # ## Examine the outputs

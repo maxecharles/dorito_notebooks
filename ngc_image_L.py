@@ -65,14 +65,15 @@ FILTERS = [
 ]
 
 idx = int(sys.argv[1])
-setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), (0, 10),# (0, 11), (0, 12), (0, 13), (0, 14), (0, 15), (0, 16), (0, 17), (0, 18), (0, 19),
-         (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10),# (1, 11), (1, 12), (1, 13), (1, 14), (1, 15), (1, 16), (1, 17), (1, 18), (1, 19),
-         (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9), (2, 10),# (2, 11), (2, 12), (2, 13), (2, 14), (2, 15), (2, 16), (2, 17), (2, 18), (2, 19),
-        ]
+# setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), (0, 10), (0, 11), (0, 12), (0, 13), (0, 14), (0, 15), (0, 16), (0, 17), (0, 18), (0, 19),
+#          (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12), (1, 13), (1, 14), (1, 15), (1, 16), (1, 17), (1, 18), (1, 19),
+#          (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9), (2, 10), (2, 11), (2, 12), (2, 13), (2, 14), (2, 15), (2, 16), (2, 17), (2, 18), (2, 19),
+#         ]
 
-i, j = setup[idx]
-FILTERS = FILTERS[i]
-batch_idx = int(j)
+# i, j = setup[idx]
+# FILTERS = FILTERS[i]
+# batch_idx = int(j)
+FILTERS = FILTERS[idx]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -313,16 +314,16 @@ for exp in fits:
         spc_keys.append(exp.map_param("spectra"))
 
 
-from jax_gaussian import gaussian_filter
-sigs = np.concat((np.array([1e-16,]), np.linspace(0.01, 0.4, 14)))
-sig = float(sigs[int(batch_idx)])
+# from jax_gaussian import gaussian_filter
+# sigs = np.concat((np.array([1e-16,]), np.linspace(0.01, 0.4, 14)))
+# sig = float(sigs[int(batch_idx)])
 # sig = 0.25
 def norm_fn(model_params, args):
     params = model_params.params
     if "log_dist" in params.keys():
         for k, log_dist in params["log_dist"].items():
             distribution = 10**log_dist
-            distribution = gaussian_filter(distribution, sigma=sig)
+            # distribution = gaussian_filter(distribution, sigma=sig)
             params["log_dist"][k] = np.log10(distribution / distribution.sum())
 
     if "spectra" in params.keys():
@@ -337,7 +338,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 8000
+n_epoch = 12000
 
 config = {
     "positions": sgd(5e-2, 0),
@@ -363,12 +364,12 @@ def grad_fn(model, grads, args):
 
 # tvs = [1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 1e5]
 # mes = [1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5, 5e5, 1e6, 5e6, 1e7]
-# tvs = np.concat((np.array([0]), np.logspace(-3, 2, 14)))
+# tvs = np.concat((np.array([0]), np.logspace(-3, 2, 19)))
 # mes = np.concat((np.array([0]), np.logspace(-2, 2, 4)))
-mes = np.concat((np.array([0]), np.logspace(-4, 3, 10)))
+# mes = np.concat((np.array([0]), np.logspace(-2, 3, 19)))
 args = {
     "reg_dict": {
-        "ME": (mes[int(batch_idx)], dorito.stats.ME),
+        # "ME": (mes[int(batch_idx)], dorito.stats.ME),
         # "TSV": (tsvs[int(j)], dorito.stats.TSV),
         # "TV": (tvs[int(batch_idx)], dorito.stats.TV),
     }
