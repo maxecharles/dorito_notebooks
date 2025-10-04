@@ -22,6 +22,7 @@ import scienceplots
 # import cmasher as cmr
 
 import sys
+from scipy.ndimage import binary_dilation
 
 # i = sys.argv[1]
 # # i = int(sys.argv[1])
@@ -118,11 +119,16 @@ for folder in os.listdir(output_path):
 # datetime_str = f"{i}_groups"
 print(datetime_str)
 
-output_path = os.path.join(output_path, datetime_str) + "/"
+job_id = os.environ.get("SLURM_JOB_ID")
+# job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+
+# batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+output_path = os.path.join(output_path, job_id)# + f"/{batch_idx}/"
+
+# output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
-print(f"Output path: {output_path}")
-# %%
+print(f"Output path: {output_path}")# %%
 files = sorted(
     file_fn(data_path), key=lambda hdu: hdu[0].header.get("EXPMID", float("inf"))
 )
@@ -153,6 +159,12 @@ for file in files:
     if not bool(file[0].header["IS_PSF"]):
         file["BADPIX"].data[43, 45] = 1
         file["BADPIX"].data[40, 45] = 1
+
+        badpix = np.array(file["BADPIX"].data, dtype=bool)
+        im = np.array(file["SLOPE"].data.sum(0))
+        im = np.where(badpix, np.nan, im)
+        mask = binary_dilation(im == np.nanmax(im), iterations=2)
+        file["BADPIX"].data += mask.astype(int)
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 2236"
@@ -218,7 +230,7 @@ cal_exposures = [
     amigo.model_fits.SplineVisFit(file, use_cov=False) for file in cal_files[0:1]
 ]
 sci_exposures = [
-    amigo.model_fits.SplineVisFit(file, use_cov=True) for file in sci_files
+    amigo.model_fits.SplineVisFit(file, use_cov=False, only_diag=True) for file in sci_files
 ]
 exposures = cal_exposures + sci_exposures
 # exposures = [
@@ -312,14 +324,14 @@ import shutil
 shutil.copy(__file__, output_path + '/script.py') 
 # %%
 print("Training...")
-n_epoch = 15000
+n_epoch = 8000
 
 config = {
     # # Init'ing from MFT
     "positions": sgd(4e-2, 0, (50, 0.0)),
     "fluxes": sgd(1e-2, 0),
     "aberrations": sgd(5e-0, 4),
-    "spectra": sgd(1.5e-1, 1000),
+    "spectra": sgd(1.5e-1, 100),
     "amplitudes": sgd(2e-1, 25),
     "phases": sgd(2e-1, 25),
 }
@@ -343,7 +355,7 @@ def norm_fn(model_params, args):
 
     if "spectra" in params.keys():
         spectra = jtu.map(
-            lambda x: np.clip(x, a_min=-0.8, a_max=0.8), params["spectra"]
+            lambda x: np.clip(x, a_min=-0.5, a_max=0.5), params["spectra"]
         )
         params["spectra"] = spectra
 
@@ -367,14 +379,14 @@ def grad_fn(model, grads, args):
 
 
 trainer = amigo.fitting.Trainer(
+    cache=os.path.join(amigo_cache, "fishers/"),
     grad_fn=grad_fn,
     norm_fn=norm_fn,
-    cache=os.path.join(amigo_cache, "fishers/"),
 )
 
 trainer = trainer.populate_fishers(
     model,
-    exposures[0:1],
+    exposures,
     hessians=load_dict(cache + "jacobians.npy")["hessian"],
     parameters=list(config.keys()),
 )
@@ -472,12 +484,17 @@ def fun(params, args):
     return -np.nanmean(exp.mv_zscore(model))
 
 
-params = ["amplitudes", "phases", "fluxes", "spectra"]
+params = ["amplitudes", "phases", "fluxes", "spectra",]
 final_model = result.model
 
 args_out = {}
 sols_out = {}
 for exp in tqdm(exposures):
+
+    # if exp.calibrator:
+    #     print(f"Skipping calibrator {exp.key}.")
+    #     continue
+
     opt_params = {}
     fishers = {}
     shapes = {}
@@ -494,21 +511,22 @@ for exp in tqdm(exposures):
     proj_mats = jtu.map(lambda x: np.where(np.isnan(x) | np.isinf(x), 0, x), proj_mats)
 
     args = (final_model, exp, model_params, proj_mats, shapes)
-    args_out[exp.key] = args
 
     try:
         print("Initial loss:", fun(initial_params, args))
+        solver = optx.BFGS(rtol=1e-8, atol=1e-8)
+        # sol = optx.minimise(fun, solver, initial_params, args, throw=False, max_steps=1)
+        sol = optx.minimise(fun, solver, initial_params, args, throw=False, max_steps=2**15)
+        sols_out[exp.key] = sol
+        args_out[exp.key] = args
+
+        print("Final loss:", fun(sol.value, args))
+        print(sol.stats["num_steps"], sol.state.num_accepted_steps)
+        print(optx.RESULTS[sol.result])
+        print()
     except Exception as e:
         print(f"Skipped {exp.key}")
         continue
-    solver = optx.BFGS(rtol=1e-8, atol=1e-8)
-    sol = optx.minimise(fun, solver, initial_params, args, throw=False, max_steps=2048)
-    sols_out[exp.key] = sol
-
-    print("Final loss:", fun(sol.value, args))
-    print(sol.stats["num_steps"], sol.state.num_accepted_steps)
-    print(optx.RESULTS[sol.result])
-    print()
 
 # %%
 spectra = {}
