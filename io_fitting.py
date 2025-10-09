@@ -123,7 +123,7 @@ job_id = os.environ.get("SLURM_JOB_ID")
 # job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
 
 # batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
-output_path = os.path.join(output_path, job_id)# + f"/{batch_idx}/"
+output_path = os.path.join(output_path, job_id) + "/" + f"/{batch_idx}/"
 
 # output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
 if not os.path.exists(output_path):
