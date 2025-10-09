@@ -1,13 +1,17 @@
 # %%
 import jax
 
+# jax.config.update("jax_enable_x64", False)
 jax.config.update("jax_enable_x64", True)
+# jax.config.update("jax_platform_name", "cpu")
 jax.config.update("jax_platform_name", "gpu")
+jax.config.update("jax_debug_nans", True)
 print(jax.local_devices()[0].device_kind)
-from jax import numpy as np
+from jax import numpy as np, random as jr, tree as jtu
 import os
 
 
+import zodiax as zdx
 from zodiax.optimisation import sgd, adam
 import dLux.utils as dlu
 
@@ -18,8 +22,10 @@ import dorito
 # visualisation
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import ehtplot
 import scienceplots
+
+# import ehtplot
+
 
 # import cmasher as cmr
 
@@ -63,8 +69,7 @@ cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 load_dict = lambda x: np.load(x, allow_pickle=True).item()
-# discos = load_dict(os.path.join(output_path, "all_cal_vis.npy"))
-disco_path = os.path.join(output_path, f"5644707/")
+disco_path = os.path.join(output_path, f"5672157/")
 discos = {}
 for filt in os.listdir(disco_path):
     disco = np.load(
@@ -74,76 +79,76 @@ for filt in os.listdir(disco_path):
         discos[key] = value
 print(discos.keys())
 
+
 # %%
-from datetime import datetime
-import sys
+def gaussian_2d(shape, center=None, sigma=10, order=2):
+    y = np.arange(shape[0])
+    x = np.arange(shape[1])
+    x, y = np.meshgrid(x, y)
+    if center is None:
+        center = (shape[1] // 2, shape[0] // 2)
 
-form = "%d-%m-%y_%H-%M-%S.%f"
-now = datetime.now()
-datetime_str = now.strftime(form)
+    r2 = (x - center[0]) ** 2 + (y - center[1]) ** 2
+    r = np.sqrt(r2)
 
-# clear directory of empty folders
-for folder in os.listdir(output_path):
-    folder_dir = os.path.join(output_path, folder)
+    supergauss = np.exp(-(r**order) / (2 * sigma**order))
+    return supergauss / supergauss.max()
 
-    # skip if not a directory
-    if not os.path.isdir(folder_dir):
-        continue
-
-    # if the folder is empty
-    if len(os.listdir(folder_dir)) == 0:
-
-        try:
-            then = datetime.strptime(folder, form)
-
-            # remove empty folder if it is older than 1 hour
-            if (now - then).seconds > 3600:  # 1 hour
-                print(f"Removing empty folder: {folder_dir}")
-                os.rmdir(folder_dir)
-        except ValueError:
-            # if the folder name is not in the correct format, skip it
-            print(f"Deleting folder: {folder_dir} (not in correct format)")
-            os.rmdir(folder_dir)
-
-# datetime_str = f"{i}_groups"
-print(datetime_str)
-output_path = os.path.join(output_path, datetime_str) + "/"
-
-# job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
-
-# batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
-# output_path = os.path.join(output_path, job_id) + f"/{batch_idx}/"
-
-# output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
-if not os.path.exists(output_path):
-    os.makedirs(output_path)
-print(f"Output path: {output_path}")
 
 # %%
 optics_diameter = 6.603464  # JWST aperture diameter in meters
 otf_coords = dlu.pixel_coords(51, 2 * optics_diameter)
 
-
 ois = [
+    # dorito.model_fits.MCAOIFit(oi_data, key, filter=key)
     dorito.model_fits.ResolvedOIFit(oi_data, key, filter=key[:5])
     for key, oi_data in discos.items()
 ]
-# print("OIS", ois)
-# ois = [oi for oi in ois if oi.filter in ["F480M"]]
-# ois = ois[1:3] + ois[4:]
+ois = ois[0:2]
+for oi in ois:
+    print(oi.key)
 
-# model = Model(
-size = 161
+s = 161
+distribution = np.ones((s, s))
+distribution *= gaussian_2d((s, s), sigma=5, order=2)
+
+
 model = dorito.models.ResolvedDiscoModel(
     ois,
-    distribution=np.ones((size, size)),
+    distribution,
     uv_npixels=2 * otf_coords.shape[-1],
     uv_pscale=0.5 * np.diff(otf_coords[0, 0]).mean(),
     oversample=3.0,
-    rotate=True,
 )
 
+# Initialise at the mean dirty image
+otf = np.load(amigo_cache + "/otf_support.npy")
 
+params = {"log_dist": {}, "base_uv": model.params["base_uv"]}
+hypot = lambda x: np.sqrt(np.array([_x**2 for _x in x]).sum(0))
+for filt in ["F380M", "F430M", "F480M"]:
+    dirty_imgs = [
+        oi.dirty_image(model, rotate=True, otf_support=otf)
+        for oi in ois
+        if oi.filter == filt
+    ]
+
+    if dirty_imgs == []:
+        print(f"No dirty images for filter {filt}, skipping initialisation.")
+        continue
+    mean_dirty = hypot(dirty_imgs)
+    # mean_dirty *= gaussian_2d((s, s), sigma=20, order=2)
+    mean_dirty *= distribution
+    init_dist = np.log10(mean_dirty / mean_dirty.sum() + 1e-16)
+
+for oi in ois:
+    if oi.filter == filt:
+        params["log_dist"][oi.get_key("log_dist")] = init_dist
+
+model = model.set("params", params)
+
+
+# %%
 def normalise_distribution(model_params, args):
     params = model_params.params
 
@@ -187,28 +192,35 @@ def centered_loss_fn(model, exposure, args, width=1e-3):
 
     return posterior, ()
 
-# %%
+
 import shutil
 
 shutil.copy(__file__, output_path + "/script.py")
 
 # %%
-n_epoch = 1000
+# n_epoch = len(x)
+n_epoch = 12000
 config = {
-    # "log_dist": adam(1e-1, 0, (5000, 0.3)),
-    "log_dist": adam(1e-3, 0),
+    # "contrast": sgd(1e-8, 10000),
+    # "log_dist": adam(5e-2, 0, (1000, 0.1)),
+    # "log_dist": adam(2e-3, 0, (1000, 0.1)),
+    # "log_dist": adam(6e-4, 0),
+    # "log_dist": adam(1e-3, 0, (3000, 0.1)),
+    # "log_dist": adam(1e-3, 0),
+    # "log_dist": adam(2e-2, 0, (1000, 0.1)),
+    "log_dist": adam(5e-3, 0),
 }
 args = {
     "reg_dict": {
-        # "ME": (1e5, dorito.stats.ME),
-    }
+        "TV": (1e2, dorito.stats.TV),
+        # "TSV": (1e6, dorito.stats.TSV),
+        # "ME": (2e4, dorito.stats.ME),
+    },
 }
 
 trainer = Trainer(
     loss_fn=centered_loss_fn,
-    # loss_fn=dorito.stats.regularised_loss_fn,
     norm_fn=normalise_distribution,
-    looper_fn=looper,
 )
 
 trainer = trainer.update_fishers(
@@ -223,23 +235,15 @@ result = trainer.train(
     optimisers=config,
     epochs=n_epoch,
     batches=ois,
-    # batches=batch_exposures(ois, 4),
     args=args,
 )
-
-np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
-result_model = result.model
-
-# balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
-# np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
-
 
 # %%
 from amigo import plotting
 
 for oi in ois:
     dist = result.model.get_distribution(oi, rotate=False)
-
+    dist /= dist.max()
     disco_amp, disco_phase = np.split(oi(result.model), 2)
 
     fig, ax = plt.subplots(1, 2, figsize=(9, 3), sharey=False)
@@ -283,11 +287,8 @@ for oi in ois:
     ax[1].legend()
 
     plt.tight_layout()
-    # plt.show()
     plt.savefig(output_path + f"{oi.key}_prebfgs_correlations.png", dpi=300)
     plt.close()
-
-    ticks = [-0.5, -0.25, 0, 0.25, 0.5]
 
     fig, ax = plt.subplots(figsize=(6, 2.3))
 
@@ -295,24 +296,24 @@ for oi in ois:
         ax,
         dist,
         pixel_scale=dlu.rad2arcsec(model.pscale_in),
-        cmap="afmhot_10u",
-        # power=0.3,
-        # vmin=0,
-        diff_lim=dlu.rad2arcsec(oi.wavel / optics_diameter),
-        # scale=1.0,
+        cmap=inferno,
+        # cmap="cubehelix",
+        # cmap="afmhot_10u",
+        # norm=mpl.colors.PowerNorm(0.1, vmin=0, vmax=500),
+        norm=mpl.colors.PowerNorm(0.5, vmin=0, vmax=0.2),
+        # scale=2,
+        ticks=[-1, 0, 1],
+        diff_lim=0.5 * dlu.rad2arcsec(oi.wavel / optics_diameter),
     )
 
     fig.colorbar(c0)
 
-    ax.set(title=f"WR137 - {oi.key}")  #   xticks=ticks, yticks=ticks)
+    ax.set(title=f"NGC1068 - {oi.key}")  # , xticks=ticks, yticks=ticks)
 
     plt.tight_layout()
-    # plt.show()
     plt.savefig(output_path + f"{oi.key}_prebfgs_dist.png", dpi=300)
     plt.close()
 
-plotting.plot_losses(result.losses[0], start=int(n_epoch * 0.75), save_path=output_path)
-plotting.plot(result.history, save_path=output_path)
 
 # %%
 import equinox as eqx
@@ -398,20 +399,21 @@ def joint_solve(
 # %%
 final_model = result.model
 
-
 bfgs_model = joint_solve(
+    # model,
     final_model,
     ois,
     args,
     Solver=optx.BFGS,
-    max_steps=2**16,
-    rtol=1e-4,
-    atol=1e-4,
+    max_steps=2**14,
+    rtol=1e-6,
+    atol=1e-6,
 )
 
 
 # %%
 for oi in ois:
+
     dist = bfgs_model(oi)
     dist = dist / dist.max()
 
@@ -433,7 +435,7 @@ for oi in ois:
     min_val = min(x_min, y_min)
     max_val = max(x_max, y_max)
     ax[0].plot([min_val, max_val], [min_val, max_val], "r--", label="y=x")
-    ax[0].set_title("Amplitude Correlations")
+    ax[0].set_title(f"Amplitude Correlations: {oi.filter}, {oi.parang:.1f} deg")
     ax[0].set_xlabel("Reconstructed Disco Amplitude")
     ax[0].set_ylabel("Calibrated Disco Amplitude")
     ax[0].legend()
@@ -452,16 +454,13 @@ for oi in ois:
     min_val = min(x_min, y_min)
     max_val = max(x_max, y_max)
     ax[1].plot([min_val, max_val], [min_val, max_val], "r--", label="y=x")
-    ax[1].set_title("Phase Correlations")
+    ax[1].set_title(f"Phase Correlations: {oi.filter}, {oi.parang:.1f} deg")
     ax[1].set_xlabel("Reconstructed Disco Phase")
     ax[1].set_ylabel("Calibrated Disco Phase")
     ax[1].legend()
 
     plt.tight_layout()
-    plt.savefig(output_path + f"{oi.key}_postbfgs_correlations.png", dpi=300)
-    plt.close()
-
-    ticks = [-0.5, -0.25, 0, 0.25, 0.5]
+    plt.show()
 
     fig, ax = plt.subplots(figsize=(6, 2.3))
 
