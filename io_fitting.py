@@ -123,7 +123,7 @@ job_id = os.environ.get("SLURM_JOB_ID")
 # job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
 
 # batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
-output_path = os.path.join(output_path, job_id) + "/" + f"/{batch_idx}/"
+output_path = os.path.join(output_path, job_id) + "/" #+ f"/{batch_idx}/"
 
 # output_path = os.path.join(output_path, job_id) + f"/{i}_{j}/"
 if not os.path.exists(output_path):
@@ -151,20 +151,24 @@ for file in files:
     file["BADPIX"].data[28, 18] = 1
     file["BADPIX"].data[32, 10] = 1
 
-    file["BADPIX"].data[:, :10] = 1
-    file["BADPIX"].data[:, -10:] = 1
-    file["BADPIX"].data[:10, :] = 1
-    file["BADPIX"].data[-10:, :] = 1
+    file["BADPIX"].data[:, :3] = 1
+    file["BADPIX"].data[:, -3:] = 1
+    file["BADPIX"].data[:3, :] = 1
+    file["BADPIX"].data[-3:, :] = 1
 
     if not bool(file[0].header["IS_PSF"]):
         file["BADPIX"].data[43, 45] = 1
         file["BADPIX"].data[40, 45] = 1
+        file["BADPIX"].data[:, :10] = 1
+        file["BADPIX"].data[:, -10:] = 1
+        file["BADPIX"].data[:10, :] = 1
+        file["BADPIX"].data[-10:, :] = 1
 
-        badpix = np.array(file["BADPIX"].data, dtype=bool)
-        im = np.array(file["SLOPE"].data.sum(0))
-        im = np.where(badpix, np.nan, im)
-        mask = binary_dilation(im == np.nanmax(im), iterations=2)
-        file["BADPIX"].data += mask.astype(int)
+        # badpix = np.array(file["BADPIX"].data, dtype=bool)
+        # im = np.array(file["SLOPE"].data.sum(0))
+        # im = np.where(badpix, np.nan, im)
+        # mask = binary_dilation(im == np.nanmax(im), iterations=2)
+        # file["BADPIX"].data += mask.astype(int)
         sci_files.append(file)
     elif bool(file[0].header["IS_PSF"]):
         file[0].header["TARGPROP"] = "HD 2236"
@@ -227,12 +231,12 @@ print("Model initialisation...")
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
 cal_exposures = [
-    amigo.model_fits.SplineVisFit(file, use_cov=False) for file in cal_files[0:1]
+    amigo.model_fits.SplineVisFit(file, use_cov=False) for file in cal_files
 ]
 sci_exposures = [
     amigo.model_fits.SplineVisFit(file, use_cov=False, only_diag=True) for file in sci_files
 ]
-exposures = cal_exposures + sci_exposures
+exposures = cal_exposures + sci_exposures[0:1]
 # exposures = [
 #     exp.set("cov", fudge_cov(exp.cov, get_depth(exp, threshold=25_000)))
 #     for exp in exposures
@@ -324,13 +328,13 @@ import shutil
 shutil.copy(__file__, output_path + '/script.py') 
 # %%
 print("Training...")
-n_epoch = 8000
+n_epoch = 1000
 
 config = {
     # # Init'ing from MFT
     "positions": sgd(4e-2, 0, (50, 0.0)),
     "fluxes": sgd(1e-2, 0),
-    "aberrations": sgd(5e-0, 4),
+    "aberrations": sgd(1e-1, 4),
     "spectra": sgd(1.5e-1, 100),
     "amplitudes": sgd(2e-1, 25),
     "phases": sgd(2e-1, 25),
@@ -484,7 +488,12 @@ def fun(params, args):
     return -np.nanmean(exp.mv_zscore(model))
 
 
-params = ["amplitudes", "phases", "fluxes", "spectra",]
+params = [
+        "amplitudes", 
+        "phases", 
+        "fluxes", 
+        # "spectra",
+        ]
 final_model = result.model
 
 args_out = {}
@@ -537,19 +546,19 @@ for key, args in args_out.items():
     model_params = jtu.map(lambda x, y: x.reshape(y), model_params, args[4])
     final_model = model_params.inject(final_model)
 
-    # Spectra is joint-fit so we take the mean
-    exp = args[1]
-    spec = model_params.params[exp.map_param("spectra")]
-    spec_key = exp.get_key("spectra")
-    if spec_key not in spectra:
-        spectra[spec_key] = [spec]
-    else:
-        spectra[spec_key].append(spec)
+#     # Spectra is joint-fit so we take the mean
+#     exp = args[1]
+#     spec = model_params.params[exp.map_param("spectra")]
+#     spec_key = exp.get_key("spectra")
+#     if spec_key not in spectra:
+#         spectra[spec_key] = [spec]
+#     else:
+#         spectra[spec_key].append(spec)
 
-spectra = jtu.map(
-    lambda x: np.array(x).mean(), spectra, is_leaf=lambda x: isinstance(x, list)
-)
-final_model = final_model.set("spectra", spectra)
+# spectra = jtu.map(
+#     lambda x: np.array(x).mean(), spectra, is_leaf=lambda x: isinstance(x, list)
+# )
+# final_model = final_model.set("spectra", spectra)
 
 final_state = {}
 for key, values in result.state.items():

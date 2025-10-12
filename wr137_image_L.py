@@ -52,23 +52,23 @@ cache = os.path.join(amigo_cache, "v_0.0.10/")
 output_path = os.path.join(amigo_cache, f"outputs/{source_name}/")
 
 EXP_TYPE = "NIS_AMI"
-FILTERS = [
-    "F480M",
-    # "F430M",
-    # "F380M",
-]
 # FILTERS = [
-#     ["F480M"],
-#     ["F430M"],
-#     ["F380M"],
+#     "F480M",
+#     "F430M",
+#     "F380M",
 # ]
+FILTERS = [
+    ["F380M"],
+    ["F480M"],
+    # ["F430M"],
+]
 
-# idx = int(sys.argv[1])
-# setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), 
-#          (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9)]
+idx = int(sys.argv[1])
+setup = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), (0, 10), (0, 11), (0, 12), (0, 13), (0, 14),
+         (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12), (1, 13), (1, 14)]
 
-# i, j = setup[idx]
-# FILTERS = FILTERS[i]
+i, j = setup[idx]
+FILTERS = FILTERS[i]
 
 # Bind file path, type and exposure type
 file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
@@ -262,12 +262,19 @@ class MonthResolvedFit(dorito.model_fits.ResolvedFit):
 
 
 # %%
-source_size = 151  # pixels
+source_size = 161  # pixels
 load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
 
-sci_fits = [MonthResolvedFit(file, use_cov=True) for file in sci_files]
+
+if FILTERS[0] == "F480M":
+    sci_fits = [MonthResolvedFit(file, use_cov=True) for file in sci_files[4:]]
+elif FILTERS[0] == "F380M":
+    sci_fits = [MonthResolvedFit(file, use_cov=True) for file in sci_files[3:]]
+else:
+    raise ValueError(f"Filter {FILTERS[0]} not recognised")
+
 cal_fits = [MonthPointFit(file, use_cov=True) for file in cal_files]
-fits = sci_fits[4:] + cal_fits
+fits = sci_fits + cal_fits
 
 # building the model
 source_osamp = 2
@@ -314,7 +321,7 @@ def norm_fn(model_params, args):
     if "log_dist" in params.keys():
         for k, log_dist in params["log_dist"].items():
             distribution = 10**log_dist
-            distribution = gaussian_filter(distribution, sigma=sig)
+            # distribution = gaussian_filter(distribution, sigma=sig)
             params["log_dist"][k] = np.log10(distribution / distribution.sum())
 
     if "spectra" in params.keys():
@@ -331,7 +338,7 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 5000
+n_epoch = 3000
 
 config = {
     "positions": sgd(2e-1, 0),
@@ -353,12 +360,12 @@ def grad_fn(model, grads, args):
 
 # tvs = [1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 1e5]
 # mes = [1e0, 5e0, 1e1, 5e1, 1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5, 5e5, 1e6, 5e6, 1e7]
-tvs = np.concat((np.array([0]), np.logspace(-3, 5, 14)))
+mes = np.concat((np.array([0]), np.logspace(1, 7, 14)))
 args = {
     "reg_dict": {
-        # "ME": (mes[int(batch_idx)], dorito.stats.ME),
+        "ME": (mes[j], dorito.stats.ME),
         # "TSV": (tsvs[int(batch_idx)], dorito.stats.TSV),
-        "TV": (tvs[int(batch_idx)], dorito.stats.TV),
+        # "TV": (tvs[int(batch_idx)], dorito.stats.TV),
     }
 }
 

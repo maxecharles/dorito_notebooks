@@ -22,9 +22,8 @@ import dorito
 # visualisation
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import ehtplot
 import scienceplots
-
-# import ehtplot
 
 
 # import cmasher as cmr
@@ -141,9 +140,9 @@ for filt in ["F380M", "F430M", "F480M"]:
     mean_dirty *= distribution
     init_dist = np.log10(mean_dirty / mean_dirty.sum() + 1e-16)
 
-for oi in ois:
-    if oi.filter == filt:
-        params["log_dist"][oi.get_key("log_dist")] = init_dist
+    for oi in ois:
+        if oi.filter == filt:
+            params["log_dist"][oi.get_key("log_dist")] = init_dist
 
 model = model.set("params", params)
 
@@ -468,7 +467,7 @@ for oi in ois:
         ax,
         dist,
         pixel_scale=dlu.rad2arcsec(model.pscale_in),
-        cmap="afmhot_u",
+        cmap=inferno,
         norm=mpl.colors.LogNorm(vmin=1e-4),
         # norm=mpl.colors.PowerNorm(0.5),
         diff_lim=dlu.rad2arcsec(oi.wavel / optics_diameter) / 2,

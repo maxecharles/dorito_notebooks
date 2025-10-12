@@ -22,9 +22,8 @@ import dorito
 # visualisation
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import ehtplot
 import scienceplots
-
-# import ehtplot
 
 
 # import cmasher as cmr
@@ -148,7 +147,7 @@ ois = [
     dorito.model_fits.ResolvedOIFit(oi_data, key, filter=key[:5])
     for key, oi_data in discos.items()
 ]
-ois = ois[0:2]
+# ois = ois[0:2]
 for oi in ois:
     print(oi.key)
 
@@ -185,9 +184,9 @@ for filt in ["F380M", "F430M", "F480M"]:
     mean_dirty *= distribution
     init_dist = np.log10(mean_dirty / mean_dirty.sum() + 1e-16)
 
-for oi in ois:
-    if oi.filter == filt:
-        params["log_dist"][oi.get_key("log_dist")] = init_dist
+    for oi in ois:
+        if oi.filter == filt:
+            params["log_dist"][oi.get_key("log_dist")] = init_dist
 
 model = model.set("params", params)
 
@@ -243,7 +242,7 @@ shutil.copy(__file__, output_path + "/script.py")
 
 # %%
 # n_epoch = len(x)
-n_epoch = 20000
+n_epoch = 30000
 config = {
     # "contrast": sgd(1e-8, 10000),
     # "log_dist": adam(5e-2, 0, (1000, 0.1)),
@@ -254,7 +253,7 @@ config = {
     # "log_dist": adam(2e-2, 0, (1000, 0.1)),
     "log_dist": adam(5e-3, 0),
 }
-tvs = np.concat((np.array([0]), np.logspace(0, 5, 10)))
+tvs = np.concat((np.array([0]), np.logspace(1, 4, 20)))
 
 args = {
     "reg_dict": {
@@ -282,6 +281,8 @@ result = trainer.train(
     batches=ois,
     args=args,
 )
+
+np.save(output_path + "params.npy", result.model.params)
 
 # %%
 from amigo import plotting
@@ -359,172 +360,174 @@ for oi in ois:
     plt.savefig(output_path + f"{oi.key}_prebfgs_dist.png", dpi=300)
     plt.close()
 
+plotting.plot_losses(result.losses[0], start=int(n_epoch * 0.75), save_path=output_path)
+plotting.plot(result.history, save_path=output_path)
 
-# %%
-import equinox as eqx
-import optimistix as optx
-
-
-def joint_solve(
-    model,
-    exposures,
-    reg_args,
-    Solver=optx.BFGS,
-    max_steps=2**16,
-    rtol=1e-4,
-    atol=1e-4,
-):
-
-    @eqx.filter_jit
-    def fun(y, args):
-
-        # unwrapping the args
-        model, exps, reg_args = args
-
-        # input is the log distribution
-        log_dist = y
-
-        # setting the model to the new log distribution
-        params = model.params
-        params["log_dist"][exps[0].get_key("log_dist")] = log_dist
-        model = model.set("params", params)
-
-        # calculating loss
-        loss = [
-            dorito.stats.disco_regularised_loss_fn(model, exp, reg_args)[0]
-            for exp in exps
-        ]
-        loss = np.array(loss).mean()
-
-        sum_prior = -jax.scipy.stats.norm.logpdf(
-            model.get_distribution(exps[0]).sum(), loc=1.0, scale=1e-5
-        )
-
-        # phase centre prior
-        centre = phase_centre(model, exps[0])
-        centre_prior = -jax.scipy.stats.norm.logpdf(centre, loc=0.0, scale=1e-3)
-
-        return loss + sum_prior + centre_prior
-
-    args_out = {}
-    sols_out = {}
-
-    for filt in ["F380M", "F430M", "F480M"]:
-
-        exps = [oi for oi in exposures if oi.filter == filt]
-        for exp in exps:
-            print(exp.key)
-
-        if len(exps) == 0:
-            print(f"No exposures for filter {filt}, skipping initialisation.")
-            continue
-
-        X = model.params["log_dist"][filt]
-        _args = (model, exps, reg_args)
-        args_out[filt] = _args
-
-        print("Initial loss:", fun(X, _args))
-        solver = Solver(rtol=rtol, atol=atol)
-        sol = optx.minimise(fun, solver, X, _args, throw=False, max_steps=max_steps)
-        sols_out[filt] = sol
-
-        print("Final loss:", fun(sol.value, _args))
-        print(sol.stats["num_steps"], sol.state.num_accepted_steps)
-        print(optx.RESULTS[sol.result])
-        print()
-
-    params = {"log_dist": {}, "base_uv": model.params["base_uv"]}
-    for exp in ois:
-        log_dist = sols_out[exp.filter].value
-        params["log_dist"][exp.get_key("log_dist")] = log_dist
-
-    return model.set("params", params)
+# # %%
+# import equinox as eqx
+# import optimistix as optx
 
 
-# %%
-final_model = result.model
+# def joint_solve(
+#     model,
+#     exposures,
+#     reg_args,
+#     Solver=optx.BFGS,
+#     max_steps=2**16,
+#     rtol=1e-4,
+#     atol=1e-4,
+# ):
 
-bfgs_model = joint_solve(
-    # model,
-    final_model,
-    ois,
-    args,
-    Solver=optx.BFGS,
-    max_steps=2**16,
-    rtol=1e-6,
-    atol=1e-6,
-)
+#     @eqx.filter_jit
+#     def fun(y, args):
+
+#         # unwrapping the args
+#         model, exps, reg_args = args
+
+#         # input is the log distribution
+#         log_dist = y
+
+#         # setting the model to the new log distribution
+#         params = model.params
+#         params["log_dist"][exps[0].get_key("log_dist")] = log_dist
+#         model = model.set("params", params)
+
+#         # calculating loss
+#         loss = [
+#             dorito.stats.disco_regularised_loss_fn(model, exp, reg_args)[0]
+#             for exp in exps
+#         ]
+#         loss = np.array(loss).mean()
+
+#         sum_prior = -jax.scipy.stats.norm.logpdf(
+#             model.get_distribution(exps[0]).sum(), loc=1.0, scale=1e-5
+#         )
+
+#         # phase centre prior
+#         centre = phase_centre(model, exps[0])
+#         centre_prior = -jax.scipy.stats.norm.logpdf(centre, loc=0.0, scale=1e-3)
+
+#         return loss + sum_prior + centre_prior
+
+#     args_out = {}
+#     sols_out = {}
+
+#     for filt in ["F380M", "F430M", "F480M"]:
+
+#         exps = [oi for oi in exposures if oi.filter == filt]
+#         for exp in exps:
+#             print(exp.key)
+
+#         if len(exps) == 0:
+#             print(f"No exposures for filter {filt}, skipping initialisation.")
+#             continue
+
+#         X = model.params["log_dist"][filt]
+#         _args = (model, exps, reg_args)
+#         args_out[filt] = _args
+
+#         print("Initial loss:", fun(X, _args))
+#         solver = Solver(rtol=rtol, atol=atol)
+#         sol = optx.minimise(fun, solver, X, _args, throw=False, max_steps=max_steps)
+#         sols_out[filt] = sol
+
+#         print("Final loss:", fun(sol.value, _args))
+#         print(sol.stats["num_steps"], sol.state.num_accepted_steps)
+#         print(optx.RESULTS[sol.result])
+#         print()
+
+#     params = {"log_dist": {}, "base_uv": model.params["base_uv"]}
+#     for exp in ois:
+#         log_dist = sols_out[exp.filter].value
+#         params["log_dist"][exp.get_key("log_dist")] = log_dist
+
+#     return model.set("params", params)
 
 
-# %%
-for oi in ois:
+# # %%
+# final_model = result.model
 
-    dist = bfgs_model(oi)
-    dist = dist / dist.max()
+# bfgs_model = joint_solve(
+#     # model,
+#     final_model,
+#     ois,
+#     args,
+#     Solver=optx.BFGS,
+#     max_steps=2**16,
+#     rtol=1e-6,
+#     atol=1e-6,
+# )
 
-    disco_amp, disco_phase = np.split(oi(bfgs_model), 2)
 
-    fig, ax = plt.subplots(1, 2, figsize=(9, 3), sharey=False)
+# # %%
+# for oi in ois:
 
-    ax[0].errorbar(
-        disco_amp,
-        oi.vis,
-        yerr=oi.d_vis,
-        label="Amplitude Correlations",
-        fmt="x",
-        alpha=0.3,
-        color="midnightblue",
-    )
-    x_min, x_max = ax[0].get_xlim()
-    y_min, y_max = ax[0].get_ylim()
-    min_val = min(x_min, y_min)
-    max_val = max(x_max, y_max)
-    ax[0].plot([min_val, max_val], [min_val, max_val], "r--", label="y=x")
-    ax[0].set_title(f"Amplitude Correlations: {oi.filter}, {oi.parang:.1f} deg")
-    ax[0].set_xlabel("Reconstructed Disco Amplitude")
-    ax[0].set_ylabel("Calibrated Disco Amplitude")
-    ax[0].legend()
+#     dist = bfgs_model(oi)
+#     dist = dist / dist.max()
 
-    ax[1].errorbar(
-        disco_phase,
-        oi.phi,
-        yerr=oi.d_phi,
-        label="Phase Correlations",
-        fmt="x",
-        alpha=0.3,
-        color="indigo",
-    )
-    x_min, x_max = ax[1].get_xlim()
-    y_min, y_max = ax[1].get_ylim()
-    min_val = min(x_min, y_min)
-    max_val = max(x_max, y_max)
-    ax[1].plot([min_val, max_val], [min_val, max_val], "r--", label="y=x")
-    ax[1].set_title(f"Phase Correlations: {oi.filter}, {oi.parang:.1f} deg")
-    ax[1].set_xlabel("Reconstructed Disco Phase")
-    ax[1].set_ylabel("Calibrated Disco Phase")
-    ax[1].legend()
+#     disco_amp, disco_phase = np.split(oi(bfgs_model), 2)
 
-    plt.tight_layout()
-    plt.show()
+#     fig, ax = plt.subplots(1, 2, figsize=(9, 3), sharey=False)
 
-    fig, ax = plt.subplots(figsize=(6, 2.3))
+#     ax[0].errorbar(
+#         disco_amp,
+#         oi.vis,
+#         yerr=oi.d_vis,
+#         label="Amplitude Correlations",
+#         fmt="x",
+#         alpha=0.3,
+#         color="midnightblue",
+#     )
+#     x_min, x_max = ax[0].get_xlim()
+#     y_min, y_max = ax[0].get_ylim()
+#     min_val = min(x_min, y_min)
+#     max_val = max(x_max, y_max)
+#     ax[0].plot([min_val, max_val], [min_val, max_val], "r--", label="y=x")
+#     ax[0].set_title(f"Amplitude Correlations: {oi.filter}, {oi.parang:.1f} deg")
+#     ax[0].set_xlabel("Reconstructed Disco Amplitude")
+#     ax[0].set_ylabel("Calibrated Disco Amplitude")
+#     ax[0].legend()
 
-    c0 = dorito.plotting.plot_result(
-        ax,
-        dist,
-        pixel_scale=dlu.rad2arcsec(model.pscale_in),
-        cmap="afmhot_u",
-        norm=mpl.colors.LogNorm(vmin=1e-4),
-        # norm=mpl.colors.PowerNorm(0.5),
-        diff_lim=dlu.rad2arcsec(oi.wavel / optics_diameter) / 2,
-        roll_angle_degrees=-oi.parang,
-        scale=1.2,
-    )
+#     ax[1].errorbar(
+#         disco_phase,
+#         oi.phi,
+#         yerr=oi.d_phi,
+#         label="Phase Correlations",
+#         fmt="x",
+#         alpha=0.3,
+#         color="indigo",
+#     )
+#     x_min, x_max = ax[1].get_xlim()
+#     y_min, y_max = ax[1].get_ylim()
+#     min_val = min(x_min, y_min)
+#     max_val = max(x_max, y_max)
+#     ax[1].plot([min_val, max_val], [min_val, max_val], "r--", label="y=x")
+#     ax[1].set_title(f"Phase Correlations: {oi.filter}, {oi.parang:.1f} deg")
+#     ax[1].set_xlabel("Reconstructed Disco Phase")
+#     ax[1].set_ylabel("Calibrated Disco Phase")
+#     ax[1].legend()
 
-    fig.colorbar(c0)
+#     plt.tight_layout()
+#     plt.show()
 
-    ax.set(title=f"WR137 - {oi.key}")  #   xticks=ticks, yticks=ticks)
+#     fig, ax = plt.subplots(figsize=(6, 2.3))
 
-    plt.tight_layout()
-    plt.savefig(output_path + f"{oi.key}_postbfgs_dist.png", dpi=300)
-    plt.close()
+#     c0 = dorito.plotting.plot_result(
+#         ax,
+#         dist,
+#         pixel_scale=dlu.rad2arcsec(model.pscale_in),
+#         cmap="inferno",
+#         norm=mpl.colors.LogNorm(vmin=1e-4),
+#         # norm=mpl.colors.PowerNorm(0.5),
+#         diff_lim=dlu.rad2arcsec(oi.wavel / optics_diameter) / 2,
+#         roll_angle_degrees=-oi.parang,
+#         scale=1.2,
+#     )
+
+#     fig.colorbar(c0)
+
+#     ax.set(title=f"WR137 - {oi.key}")  #   xticks=ticks, yticks=ticks)
+
+#     plt.tight_layout()
+#     plt.savefig(output_path + f"{oi.key}_postbfgs_dist.png", dpi=300)
+#     plt.close()

@@ -121,12 +121,12 @@ ois = [
     for key, oi_data in cal_vis_outputs.items()
 ]
 
-ois = [oi for oi in ois if oi.filter in ["F480M"]]
+# ois = [oi for oi in ois if oi.filter in ["F480M"]]
 ois = ois[1:]
 # ois = ois[1:3] + ois[4:]
 
 # model = Model(
-size = 151
+size = 121
 model = dorito.models.ResolvedDiscoModel(
     ois,
     distribution=np.ones((size, size)),
@@ -186,13 +186,13 @@ import shutil
 shutil.copy(__file__, output_path + "/script.py")
 
 # %%
-n_epoch = 20000
+n_epoch = 12000
 config = {
     # "log_dist": adam(1e-1, 0, (5000, 0.3)),
     "log_dist": adam(5e-3, 0),
 }
 
-mes = np.concat((np.array([0]), np.logspace(1, 7, 29)))
+mes = np.concat((np.array([0]), np.logspace(2, 8, 29)))
 
 args = {
     "reg_dict": {
@@ -429,7 +429,7 @@ bfgs_model = joint_solve(
     ois,
     args,
     Solver=optx.BFGS,
-    max_steps=2**16,
+    max_steps=2**15,
     rtol=1e-4,
     atol=1e-4,
 )
