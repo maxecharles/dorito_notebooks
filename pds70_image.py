@@ -1,9 +1,7 @@
-# %% [markdown]
-# # Fitting PDS70 in the image plane
-
 # %%
 # jax ecosystem
 import jax
+
 jax.config.update("jax_platform_name", "gpu")
 jax.config.update("jax_enable_x64", True)
 print(jax.local_devices()[0].device_kind)
@@ -23,11 +21,7 @@ import astropy
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ehtplot
-import scienceplots
-
-import sys
-
-batch_idx = sys.argv[1] if len(sys.argv) > 1 else "0"
+import scienceplots  # to use matplotlib style "science"
 
 # matplotlib parameters
 plt.style.use(["science", "bright", "no-latex"])
@@ -39,6 +33,16 @@ plt.rcParams["figure.dpi"] = 300
 plt.rcParams["font.size"] = 8
 plt.rcParams["xtick.direction"] = "out"
 plt.rcParams["ytick.direction"] = "out"
+
+inferno = mpl.colormaps["inferno"]
+viridis = mpl.colormaps["viridis"]
+seismic = mpl.colormaps["seismic"]
+coolwarm = mpl.colormaps["coolwarm"]
+
+inferno.set_bad("k", 0.5)
+viridis.set_bad("k", 0.5)
+seismic.set_bad("k", 0.5)
+coolwarm.set_bad("k", 0.5)
 
 # %%
 from socket import gethostname
@@ -76,42 +80,8 @@ file_fn = lambda data_path, filters=FILTERS, **kwargs: amigo.files.get_files(
 )
 
 # %% [markdown]
-from datetime import datetime
-form = "%d-%m-%y_%H-%M-%S.%f"
-now = datetime.now()
-datetime_str = now.strftime(form)
-
-# clear directory of empty folders
-for folder in os.listdir(output_path):
-    folder_dir = os.path.join(output_path, folder)
-
-    # skip if not a directory
-    if not os.path.isdir(folder_dir):
-        continue
-
-    # if the folder is empty
-    if len(os.listdir(folder_dir)) == 0:
-
-        try:
-            then = datetime.strptime(folder, form)
-                
-            # remove empty folder if it is older than 1 hour
-            if (now - then).seconds > 3600:  # 1 hour
-                print(f"Removing empty folder: {folder_dir}")
-                os.rmdir(folder_dir)
-        except ValueError:
-            # if the folder name is not in the correct format, skip it
-            print(f"Deleting folder: {folder_dir} (not in correct format)")
-            os.rmdir(folder_dir)
-
-# datetime_str = f"{i}_groups"
-print(datetime_str)
-
-# output_path = os.path.join(output_path, batch_idx) + "_25g/"
-output_path = os.path.join(output_path, datetime_str) + "/"
-if not os.path.exists(output_path):
-    os.makedirs(output_path)
-print(f"Output path: {output_path}")
+#
+# # Loading in data
 
 # %%
 files = sorted(
@@ -140,12 +110,12 @@ for file in files:
     file["BADPIX"].data[-3:, :] = 1
 
     if file[0].header["TARGPROP"] == "TD-PDS-70":
-        file["BADPIX"].data[36:66, :25] = 1  # BACKGROUND STAR?
+        # file["BADPIX"].data[36:66, :25] = 1  # BACKGROUND STAR?
         file["BADPIX"].data[17, 70] = 1
         file["BADPIX"].data[19, 53] = 1
         file["BADPIX"].data[5, 22] = 1
         file["BADPIX"].data[19, 41] = 1
-        file["BADPIX"].data[:66, :25] = 1  # BACKGROUND STAR?
+        # file["BADPIX"].data[:66, :25] = 1  # BACKGROUND STAR?
         file["BADPIX"].data[76, 45] = 1
         file["BADPIX"].data[59, 30] = 1
 
@@ -157,8 +127,7 @@ for file in files:
     else:
         print(f"Unkown target: {file[0].header['TARGPROP']}")
 
-dorito.misc.truncate_files(sci_files, 80)
-
+# dorito.misc.truncate_files(sci_files, 30)
 
 # %%
 from astropy.time import Time
@@ -176,38 +145,59 @@ for file in files:
     )
     t0 = t
 
+# %% [markdown]
+# ## Building the model
 
 # %%
-source_size = 91  # pixels
-load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()
+load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()  # helper function
 
-sci_fits = [dorito.model_fits.MCAFit(file, use_cov=True) for file in sci_files]
-cal_fits = [amigo.model_fits.PointFit(file, use_cov=True) for file in cal_files]
-fits = sci_fits + cal_fits
+# just two science exposures and one calibrator for this demo
+# sci_exps = [PointResolvedFit(file) for file in sci_files]
+exp_dict = {
+    # "TD": PointResolvedFit(sci_files[0]),
+    "STAR": amigo.model_fits.PointFit(sci_files[0]),
+    "TD": dorito.model_fits.TransformedResolvedFit(sci_files[0]),
+    "FS": amigo.model_fits.PointFit(sci_files[0]),
+}
+sci_exps = [dorito.model_fits.MultiSourceFit(sci_files[0], exp_dict)]
+cal_exps = [amigo.model_fits.PointFit(file) for file in cal_files]
+# exps = sci_exps + cal_exps
+# exps = cal_exps
+exps = sci_exps
 
 # building the model
-model = dorito.models.MCAModel(
-    exposures=fits,
+source_size = 71  # pixels
+basis, window = dorito.bases.inscribed_annulus_basis(source_size, iterations=1)
+init_dist = np.ones((source_size, source_size)) / window.sum()
+model = dorito.models.TransformedResolvedModel(
+    exposures=exps,
     optics=amigo.optical_models.AMIOptics(),
     detector=amigo.detector_models.LinearDetector(),
     ramp_model=amigo.ramp_models.NonLinearRamp(),
     read=amigo.read_models.ReadModel(),
     state=load_dict(cache + "calibration.npy"),
+    basis=basis,
+    window=window,
     param_initers={
-        "distribution": np.ones((source_size, source_size)),
-        "contrast": 0.949,
+        # "contrast": 0.04,
+        "distribution": init_dist
     },
-    moat_width=1,
 )
 
+model.params["aberrations"] = load_dict("files/pds70_abs.npy")
+model.params["positions"]["01242_005_02_03_1_FS"] = np.array([-2.15, -0.71])
+model.params["fluxes"]["01242_005_02_03_1_FS"] = np.array([2.5])
+model.params["fluxes"]["01242_005_02_03_1_TD"] = (
+    np.log10(0.04) + model.params["fluxes"]["01242_005_02_03_1_STAR"]
+)
+# model.params["positions"]["01242_005_02_03_1_TD"] = np.array([0, 0])
+# model.params["fluxes"]["01242_005_02_03_1_TD"] = np.array([10])
+# model.params["fluxes"]["01242_005_02_03_1_TD"] += np.log10(0.5)
+
 # %%
-for exp in fits:
+for exp in exps:
     exp.print_summary()
-    amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
-
-
-import shutil
-shutil.copy(__file__, output_path + '/script.py') 
+    amigo.plotting.summarise_fit(model, exp, residuals=False)
 
 # %% [markdown]
 # ## Optimisation Stage 1: Gradient Descent
@@ -215,31 +205,34 @@ shutil.copy(__file__, output_path + '/script.py')
 # %%
 pos_keys = []
 spc_keys = []
-for exp in fits:
+flx_keys = []
+for exp in exps:
     if not exp.calibrator:
-        pos_keys.append(exp.map_param("positions"))
-        spc_keys.append(exp.map_param("spectra"))
+        spc_keys.append(exp.map_param("spectra", "TD"))
+        spc_keys.append(exp.map_param("spectra", "FS"))
+        pos_keys.append(exp.map_param("positions", "TD"))
+        flx_keys.append(exp.map_param("fluxes", "TD"))
 
 
 def norm_fn(model_params, args):
     params = model_params.params
+
+    # NOTE: This normalisation won't work for an arbitrary basis!
     if "log_dist" in params.keys():
-
-        for filt in params["log_dist"].keys():
-
-            log_dist = params["log_dist"][filt]
-            contrast = params["contrast"][filt]
-
-            dist = 10**log_dist
-
-            # normalising the distribution
-            params["log_dist"][filt] = np.log10(dist * (1 - contrast) / dist.sum())
+        for k, log_dist in params["log_dist"].items():
+            distribution = 10**log_dist
+            params["log_dist"][k] = np.log10(distribution / distribution.sum())
 
     if "spectra" in params.keys():
-        spectra = jtu.map(
+        spectra = jax.tree.map(
             lambda x: np.clip(x, a_min=-0.8, a_max=0.8), params["spectra"]
         )
         params["spectra"] = spectra
+
+    if "positions" in params.keys():
+        params["positions"]["01242_005_02_03_1_TD"] = params["positions"][
+            "01242_005_02_03_1_STAR"
+        ]
 
     return model_params.set("params", params), args
 
@@ -247,42 +240,39 @@ def norm_fn(model_params, args):
 pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 # %%
-n_epoch = 10000
+n_epoch = 100
 
 config = {
     "positions": sgd(3e-3, 0),
     "fluxes": sgd(5e-3, 0),
     "aberrations": sgd(5e-3, 4),
-    "spectra": sgd(1e-2, 20),
-    "log_dist": adam(1e-3, 30),
-    # "log_dist": adam(1e-1, 30, (1000, 0.75)),
-    "contrast": sgd(1e-5, 100),
-    # "contrast": sgd(1e-6, 1000000),
-    # "phases": sgd(1e-3, 20),
-    # "amplitudes": sgd(1e-3, 20),
+    "spectra": sgd(1e-2, 50),
+    "log_dist": adam(2e-1, 10),
+    # "contrast": adam(3e-2, 30),
+    # "log_dist": adam(5e-2, 0),
+    # "fluxes": sgd(2e-2, 0),
 }
 
 
 def grad_fn(model, grads, args):
 
     # Reduce spectra gradients for the science exposures
-    if "spectra" in config.keys():
-        grads = grads.multiply(spc_keys, 0.3)
+    # if "spectra" in config.keys():
+    #     grads = grads.multiply(spc_keys, 0.3)
+
+    if "fluxes" in config.keys():
+        grads = grads.multiply(flx_keys, 0.01)
     return grads, args
 
-# mes = [2e-1, 5e-1, 1e0, 2e0, 5e0, 1e1, 2e1]
+
 args = {
     "reg_dict": {
-        # "L1": dorito.stats.L1_on_wavelets,
-        # "L1": L1_REG,
-        # "QV": dorito.stats.TSV,
-        # 1e4: dorito.stats.TV,
-        # "ME": (mes[int(batch_idx)], dorito.stats.ME),
-    }
+        # "ME": (5e-2, dorito.stats.ME),
+        # "TV": (1e-2, dorito.stats.TV),
+        # "TV": (1e-3, dorito.stats.TV),
+    },
+    "source_id": "TD",
 }
-
-
-
 
 trainer = amigo.fitting.Trainer(
     loss_fn=dorito.stats.ramp_regularised_loss_fn,
@@ -293,44 +283,52 @@ trainer = amigo.fitting.Trainer(
 
 print("Populating fishers...")
 trainer = trainer.populate_fishers(
-    # model.set("detector.ramp.bleed", False).set("params", params),
     model,
-    fits,
+    exps,
     hessians=load_dict(cache + "jacobians.npy")["hessian"],
-    parameters=[p for p in config.keys()],  # if p not in ["log_dist"]],
+    parameters=[p for p in config.keys() if p not in ["log_dist", "contrast"]],
 )
 
-print("Number of exposures: ", len(fits))
+print("Number of exposures: ", len(exps))
 
 # Train the model
 result = trainer.train(
     model=model,
     optimisers=config,
     epochs=n_epoch,
-    batches=fits,
+    batches=exps,
     args=args,
 )
 
-np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
-result_model = result.model
+# %%
+amigo.plotting.plot_losses(result.losses[0], start=int(n_epoch * 0.75))
+amigo.plotting.plot(result.history)
+
+for exp in exps:
+    exp.print_summary()
+    amigo.plotting.summarise_fit(result.model, exp)
 
 # %%
 from dLux import utils as dlu
 
-result_model = result.model
+# np.save("files/pds70_abs.npy", result.model.params["aberrations"], allow_pickle=True)
 
-
-optics_diameter = 6.603464  # JWST aperture diameter in meters
 
 def eff_wavel(model, filt):
     wavels, weights = model.filters[filt]
     return np.dot(wavels, weights)
 
-for exp in fits:
+
+result_model = result.model
+optics_diameter = 6.603464  # JWST aperture diameter in meters
+
+for exp in exps:
 
     if exp.calibrator:
         continue
-    dist = result_model.get_distribution(exp, rotate=False, with_star=False)
+    dist = result_model.get_distribution(
+        exp.exposures["TD"], rotate=False, source_id="TD"
+    )
     fig, ax = plt.subplots(figsize=(6, 3))
 
     c0 = dorito.plotting.plot_result(
@@ -339,15 +337,15 @@ for exp in fits:
         pixel_scale=model.psf_pixel_scale / model.oversample,
         cmap="inferno",
         # roll_angle_degrees=-exp.parang,
-        norm=mpl.colors.PowerNorm(0.3),
+        norm=mpl.colors.PowerNorm(0.5, vmin=None),
         # norm=mpl.colors.PowerNorm(0.3, vmax=0.3),
-        diff_lim=dlu.rad2arcsec(eff_wavel(model, exp.filter) / optics_diameter),
+        diff_lim=0.5 * dlu.rad2arcsec(eff_wavel(model, exp.filter) / optics_diameter),
         # scale=1.5,
     )
 
     fig.colorbar(c0)
 
-    # ax.set(title=f"PDS70 - {exp.filter} - {mes[int(batch_idx)]}")  #   xticks=ticks, yticks=ticks)
+    ax.set(title=f"PDS70 - {exp.filter}")  #   xticks=ticks, yticks=ticks)
     ax.scatter([0], [0], marker="*", color="white", s=10)
 
     seps = 1e-3 * np.array([150.5, 218.4])
@@ -367,15 +365,7 @@ for exp in fits:
     )
 
     plt.tight_layout()
-    # plt.show()
-    plt.savefig(output_path + f"dist_{exp.key}.png", dpi=300)
-    plt.close()
+    plt.show()
+    # plt.savefig(output_path + f"{exp.key}_dist.png", dpi=300)
 
-amigo.plotting.plot_losses(
-    result.losses[0], start=int(n_epoch * 0.75), save_path=output_path
-)
-amigo.plotting.plot(result.history, save_path=output_path)
-
-for exp in fits:
-    exp.print_summary()
-    amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
+# %%
