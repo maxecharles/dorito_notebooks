@@ -9,6 +9,7 @@ print(jax.local_devices()[0].device_kind)
 from jax import numpy as np, tree as jtu
 import zodiax as zdx
 from zodiax.optimisation import sgd, adam
+from dLux import utils as dlu
 import amigo
 import dorito
 
@@ -16,6 +17,7 @@ import dorito
 import numpy
 import os
 import astropy
+
 
 # matplotlib ecosystem
 import matplotlib.pyplot as plt
@@ -145,6 +147,18 @@ for file in files:
     )
     t0 = t
 
+import sys
+job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+job_name = os.environ.get("SLURM_JOB_NAME")
+job_idx = "_".join((job_id, job_name))
+
+batch_idx = int(sys.argv[1]) if len(sys.argv) > 1 else int(0)
+output_path = os.path.join(output_path, job_idx) + f"/{batch_idx}/"
+
+if not os.path.exists(output_path):
+    os.makedirs(output_path)
+print(f"Output path: {output_path}")
+
 # %% [markdown]
 # ## Building the model
 
@@ -154,9 +168,9 @@ load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()  # helper functi
 # just two science exposures and one calibrator for this demo
 # sci_exps = [PointResolvedFit(file) for file in sci_files]
 exp_dict = {
-    # "TD": PointResolvedFit(sci_files[0]),
-    "STAR": amigo.model_fits.PointFit(sci_files[0]),
-    "TD": dorito.model_fits.TransformedResolvedFit(sci_files[0]),
+    "TD": dorito.model_fits.PointResolvedFit(sci_files[0]),
+    # "STAR": amigo.model_fits.PointFit(sci_files[0]),
+    # "TD": dorito.model_fits.TransformedResolvedFit(sci_files[0]),
     "FS": amigo.model_fits.PointFit(sci_files[0]),
 }
 sci_exps = [dorito.model_fits.MultiSourceFit(sci_files[0], exp_dict)]
@@ -166,7 +180,9 @@ exps = sci_exps + cal_exps
 # exps = sci_exps
 
 # building the model
-source_size = 101  # pixels
+# sizes = np.linspace(81, 191, 12)  # pupil sizes to consider
+# source_size = int(sizes[batch_idx])  # pixels
+source_size = 131  # pixels
 basis, window = dorito.bases.inscribed_annulus_basis(source_size, iterations=1)
 init_dist = np.ones((source_size, source_size)) / window.sum()
 model = dorito.models.TransformedResolvedModel(
@@ -179,33 +195,20 @@ model = dorito.models.TransformedResolvedModel(
     basis=basis,
     window=window,
     param_initers={
-        # "contrast": 0.04,
+        "contrast": 0.04,
         "distribution": init_dist
     },
 )
 
-# model.params["aberrations"] = load_dict("files/pds70_abs.npy")
+model.params["aberrations"] = load_dict(f"{cache}/aberrations/PDS70_CALFIT.npy")["aberrations"] 
 model.params["positions"]["01242_005_02_03_1_FS"] = np.array([-2.15, -0.71])
 model.params["fluxes"]["01242_005_02_03_1_FS"] = np.array([2.5])
-model.params["fluxes"]["01242_005_02_03_1_TD"] = (
-    np.log10(0.04) + model.params["fluxes"]["01242_005_02_03_1_STAR"]
-)
-# model.params["positions"]["01242_005_02_03_1_TD"] = np.array([0, 0])
-# model.params["fluxes"]["01242_005_02_03_1_TD"] = np.array([10])
-# model.params["fluxes"]["01242_005_02_03_1_TD"] += np.log10(0.5)
+# model.params["fluxes"]["01242_005_02_03_1_TD"] = (
+    # np.log10(0.04) + model.params["fluxes"]["01242_005_02_03_1_STAR"]
+# )
 
 # %%
-import sys
-job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
-job_name = os.environ.get("SLURM_JOB_NAME")
-job_idx = "_".join(job_id, job_name)
 
-batch_idx = int(sys.argv[1]) if len(sys.argv) > 1 else int(0)
-output_path = os.path.join(output_path, job_idx) + f"/{batch_idx}/"
-
-if not os.path.exists(output_path):
-    os.makedirs(output_path)
-print(f"Output path: {output_path}")
 
 for exp in exps:
     exp.print_summary()
@@ -229,7 +232,7 @@ from jax_gaussian import gaussian_filter
 
 # sigs = np.concat((np.array([1e-16,]), np.linspace(0.01, 0.5, 7)))
 # sig = float(sigs[batch_idx])
-sig = 0.25
+# sig = 0.25
 def norm_fn(model_params, args):
     params = model_params.params
 
@@ -239,7 +242,7 @@ def norm_fn(model_params, args):
             basis = args["basis"]
             window = args["window"]
             distribution = 10 ** basis.from_basis(log_dist) * window
-            distribution = gaussian_filter(distribution, sigma=sig)
+            # distribution = gaussian_filter(distribution, sigma=sig)
             distribution += 1e-16 * ((window + 1) % 2)
             log_dist = np.log10(distribution / distribution.sum())
             params["log_dist"][k] = basis.to_basis(log_dist)
@@ -250,10 +253,10 @@ def norm_fn(model_params, args):
         )
         params["spectra"] = spectra
 
-    if "positions" in params.keys():
-        params["positions"]["01242_005_02_03_1_TD"] = params["positions"][
-            "01242_005_02_03_1_STAR"
-        ]
+    # if "positions" in params.keys():
+    #     params["positions"]["01242_005_02_03_1_TD"] = params["positions"][
+    #         "01242_005_02_03_1_STAR"
+    #     ]
 
     return model_params.set("params", params), args
 
@@ -262,35 +265,38 @@ import shutil
 shutil.copy(__file__, output_path + "/script.py")
 
 # %%
-n_epoch = 500
+n_epoch = 600
 
 config = {
     "positions": sgd(3e-3, 0),
     "fluxes": sgd(2e-2, 0),
-    "aberrations": sgd(1e-2, 4),
-    "spectra": sgd(1e-2, 50),
+    # "aberrations": sgd(2e-2, 4),
+    "spectra": sgd(4e-2, 10),
     "log_dist": adam(2e-1, 10),
-    # "contrast": adam(3e-2, 30),
+    # "log_dist": adam(5e-1, 30),
+    "contrast": adam(2e-2, 15),
     # "log_dist": adam(5e-2, 0),
+    # "fluxes": sgd(2e-2, 0),
 }
 
 
-def grad_fn(model, grads, args):
+# def grad_fn(model, grads, args):
 
-    # Reduce spectra gradients for the science exposures
-    # if "spectra" in config.keys():
-    #     grads = grads.multiply(spc_keys, 0.3)
+#     # Reduce spectra gradients for the science exposures
+#     # if "spectra" in config.keys():
+#     #     grads = grads.multiply(spc_keys, 0.3)
 
-    if "fluxes" in config.keys():
-        grads = grads.multiply(flx_keys, 0.01)
-    return grads, args
+#     if "fluxes" in config.keys():
+#         grads = grads.multiply(flx_keys, 0.01)
+#     return grads, args
 
-tvs = np.concat((np.array([0]), np.logspace(-4, 0, 11)))
+# tvs = np.concat((np.array([0]), np.logspace(-4, 0, 11)))
+mes = np.concat((np.array([0]), np.logspace(-3, 4, 11)))
 args = {
     "reg_dict": {
-        # "ME": (5e-2, dorito.stats.ME),
-        # "TV": (1e-2, dorito.stats.TV),
-        "TV": (tvs[batch_idx], dorito.stats.TV),
+        "ME": (mes[batch_idx], dorito.stats.ME),
+        # "ME": (mes[batch_idx], dorito.stats.ME),
+        # "TV": (tvs[batch_idx], dorito.stats.TV),
     },
     "source_id": "TD",
     "basis": basis,
@@ -300,7 +306,7 @@ args = {
 trainer = amigo.fitting.Trainer(
     loss_fn=dorito.stats.ramp_regularised_loss_fn,
     norm_fn=norm_fn,
-    grad_fn=grad_fn,
+    # grad_fn=grad_fn,
     cache=os.path.join(amigo_cache, "fishers/"),
 )
 
@@ -328,8 +334,11 @@ result = trainer.train(
 np.save(output_path + "params.npy", result.model.params, allow_pickle=True)
 result_model = result.model
 
-# balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_fits, args)
-# np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
+# try:
+#     balance_dict = dorito.stats.ramp_posterior_balances(result_model, sci_exps, args)
+#     np.save(output_path + "balance.npy", balance_dict, allow_pickle=True)
+# except Exception as e:
+#     print(f"Could not compute balances: {e}")
 
 amigo.plotting.plot_losses(result.losses[0], start=int(n_epoch * 0.75), save_path=output_path)
 amigo.plotting.plot(result.history, save_path=output_path)
@@ -339,7 +348,6 @@ for exp in exps:
     amigo.plotting.summarise_fit(result.model, exp, save_path=output_path)
 
 # %%
-from dLux import utils as dlu
 
 # np.save("files/pds70_abs.npy", result.model.params["aberrations"], allow_pickle=True)
 
