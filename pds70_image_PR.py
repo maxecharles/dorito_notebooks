@@ -182,7 +182,7 @@ exps = sci_exps + cal_exps
 # building the model
 # sizes = np.linspace(81, 191, 12)  # pupil sizes to consider
 # source_size = int(sizes[batch_idx])  # pixels
-source_size = 131  # pixels
+source_size = 201  # pixels
 basis, window = dorito.bases.inscribed_annulus_basis(source_size, iterations=1)
 init_dist = np.ones((source_size, source_size)) / window.sum()
 model = dorito.models.TransformedResolvedModel(
@@ -290,13 +290,13 @@ config = {
 #         grads = grads.multiply(flx_keys, 0.01)
 #     return grads, args
 
-# tvs = np.concat((np.array([0]), np.logspace(-4, 0, 11)))
-mes = np.concat((np.array([0]), np.logspace(-3, 4, 11)))
+tvs = np.concat((np.array([0]), np.logspace(-4, 0, 14)))
+# mes = np.concat((np.array([0]), np.logspace(-3, 4, 14)))
 args = {
     "reg_dict": {
-        "ME": (mes[batch_idx], dorito.stats.ME),
         # "ME": (mes[batch_idx], dorito.stats.ME),
-        # "TV": (tvs[batch_idx], dorito.stats.TV),
+        # "ME": (mes[batch_idx], dorito.stats.ME),
+        "TV": (tvs[batch_idx], dorito.stats.TV),
     },
     "source_id": "TD",
     "basis": basis,
