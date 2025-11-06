@@ -254,7 +254,7 @@ model = ExoZodiModel(
     param_initers={"contrast": np.array(1e-3), "stdev": np.array(1)},
 )
 
-model = model.set("params", load_dict(f"{cache}/aberrations/PDS70_CALFIT.npy"))
+model = model.set("params", load_dict(f"{cache}/aberrations/NUHOR_CAL.npy"))
 
 
 # %%
@@ -262,13 +262,13 @@ import sys
 
 job_name = os.environ.get("SLURM_JOB_NAME")
 try:
-    job_id = os.environ.get("SLURM_ARRAY_JOB_ID")
+    job_id = os.environ.get("SLURM_JOB_ID")
     job_idx = "_".join(job_id, job_name)
 except:
     job_idx = job_name if job_name is not None else "local"
 
-batch_idx = int(sys.argv[1]) if len(sys.argv) > 1 else int(0)
-output_path = os.path.join(output_path, job_idx) + f"/{batch_idx}/"
+# batch_idx = int(sys.argv[1]) if len(sys.argv) > 1 else int(0)
+output_path = os.path.join(output_path, job_idx) + f"/"#{batch_idx}/"
 
 if not os.path.exists(output_path):
     os.makedirs(output_path)
@@ -284,7 +284,7 @@ for exp in exps:
     amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
 
 # %%
-import numpyro, chainconsumer
+import numpyro
 
 
 def npy_model(model, exposure):
@@ -319,10 +319,10 @@ results = sampler.get_samples()  # Dictionary of MCMC samples
 # %%
 np.save(output_path + "results.npy", results, allow_pickle=True)
 
-C = chainconsumer.ChainConsumer()
-C.add_chain(results, name="MCMC Results")
-# C.plotter.plot(
-#     extents={'m': [-5,5], 'c':[-10,10]},
-#     truth = {'m':m_true, 'c':c_true})
+import chainconsumer as cc
+
+C = cc.ChainConsumer()
+C.add_chain(cc.Chain.from_numpyro(sampler, name="MCMC Results"))
+fig = C.plotter.plot()
 plt.savefig(output_path + "corner_plot.png", dpi=300)
 plt.show()
