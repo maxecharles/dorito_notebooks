@@ -263,12 +263,12 @@ import sys
 job_name = os.environ.get("SLURM_JOB_NAME")
 try:
     job_id = os.environ.get("SLURM_JOB_ID")
-    job_idx = "_".join(job_id, job_name)
+    job_idx = "_".join([job_id, job_name])
 except:
     job_idx = job_name if job_name is not None else "local"
 
 # batch_idx = int(sys.argv[1]) if len(sys.argv) > 1 else int(0)
-output_path = os.path.join(output_path, job_idx) + f"/"#{batch_idx}/"
+output_path = os.path.join(output_path, job_idx) + f"/"  # {batch_idx}/"
 
 if not os.path.exists(output_path):
     os.makedirs(output_path)
@@ -284,13 +284,17 @@ for exp in exps:
     amigo.plotting.summarise_fit(model, exp, residuals=False, save_path=output_path)
 
 # %%
-import numpyro
+import numpyro as npy
+from numpyro import distributions as dist
 
 
 def npy_model(model, exposure):
     # sampling params
-    stdev = numpyro.sample("sig", numpyro.distributions.HalfNormal(1))  # prior on m
-    contrast = numpyro.sample("cont", numpyro.distributions.HalfNormal(1))  # Prior on c
+    stdev = npy.sample("sig", dist.HalfNormal(1))  # prior on m
+    contrast = npy.sample(
+        "cont",
+        dist.TruncatedDistribution(dist.Normal(mu=0.0, sigma=0.1), low=0.0, high=1.0),
+    )  # Prior on c
 
     # updating model with sampled params
     params = model.params
@@ -303,15 +307,15 @@ def npy_model(model, exposure):
     X = exposure(model).flatten()
     err = np.einsum("iixy->ixy", exposure.cov).flatten()  # the diagonal of the cov mats
 
-    with numpyro.plate("data", data.size):
-        numpyro.sample("y", numpyro.distributions.Normal(X, err), obs=data)
+    with npy.plate("data", data.size):œ
+        npy.sample("y", dist.Normal(X, err), obs=data)
 
 
-# numpyro.render_model(npy_model, model_args=(model, exps[0]))
+# npy.render_model(npy_model, model_args=(model, exps[0]))
 
 # %%
-sampler = numpyro.infer.MCMC(
-    numpyro.infer.NUTS(npy_model), num_chains=1, num_samples=1000, num_warmup=100
+sampler = npy.infer.MCMC(
+    npy.infer.NUTS(npy_model), num_chains=1, num_samples=50000, num_warmup=1000
 )
 sampler.run(jax.random.PRNGKey(1), model, exps[0])
 results = sampler.get_samples()  # Dictionary of MCMC samples
