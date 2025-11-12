@@ -293,7 +293,7 @@ def npy_model(model, exposure):
     stdev = npy.sample("sig", dist.HalfNormal(1))  # prior on m
     contrast = npy.sample(
         "cont",
-        dist.TruncatedDistribution(dist.Normal(mu=0.0, sigma=0.1), low=0.0, high=1.0),
+        dist.TruncatedDistribution(dist.Normal(loc=0.0, scale=0.2), low=0.0, high=1.0),
     )  # Prior on c
 
     # updating model with sampled params
@@ -307,7 +307,7 @@ def npy_model(model, exposure):
     X = exposure(model).flatten()
     err = np.einsum("iixy->ixy", exposure.cov).flatten()  # the diagonal of the cov mats
 
-    with npy.plate("data", data.size):œ
+    with npy.plate("data", data.size):
         npy.sample("y", dist.Normal(X, err), obs=data)
 
 
@@ -315,7 +315,7 @@ def npy_model(model, exposure):
 
 # %%
 sampler = npy.infer.MCMC(
-    npy.infer.NUTS(npy_model), num_chains=1, num_samples=50000, num_warmup=1000
+    npy.infer.NUTS(npy_model), num_chains=1, num_samples=20000, num_warmup=500
 )
 sampler.run(jax.random.PRNGKey(1), model, exps[0])
 results = sampler.get_samples()  # Dictionary of MCMC samples

@@ -49,7 +49,7 @@ elif gethostname() == "AJQ4YHQH9TX":
 else:
     path = "/fred/oz440/max/"
 
-source_name = "HD135344B"
+source_name = "HD100546"
 data_path = os.path.join(path, f"data/JWST/{source_name}/calslope/")
 uncal_path = os.path.join(path, f"data/JWST/{source_name}/uncal/")
 amigo_cache = os.path.join(path, "data/amigo_files/")
@@ -152,7 +152,25 @@ for file in files:
 from dorito.model_fits import PointResolvedFit
 from amigo.model_fits import PointFit
 
+class OsampPointFit(amigo.model_fits.PointFit):
 
+    def simulate(self, model, return_slopes=True):
+        model = self.nuke_pixel_grads(model)
+        psf = self.model_psf(model)
+
+        #################################################################
+        # Add the extra downsample to the 3x oversample for the detector/ramp
+        psf = psf.downsample(model.source_oversample)
+        #################################################################
+
+        illuminance = self.model_illuminance(psf, model)
+        ramp = self.model_ramp(illuminance, model)
+        ramp = self.model_read(ramp, model)
+
+        if return_slopes:
+            return ramp.set("data", np.diff(ramp.data, axis=0))
+        return ramp
+    
 class PointRotFit(PointFit):
 
     def get_key(self, param):
@@ -274,37 +292,6 @@ class PRRotFit(PointResolvedFit):
         rotation = model.get(self.map_param("rotation"))
         return psf.rotate(rotation)
 # %%
-load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()  # helper function
-
-# just two science exposures and one calibrator for this demo
-sci_exps = [PRRotFit(file) for file in sci_files]
-# sci_exps = [dorito.model_fits.PointResolvedFit(file) for file in sci_files]
-cal_exps = [PointRotFit(file) for file in cal_files]
-# cal_exps = [amigo.model_fits.PointFit(file) for file in cal_files]
-exps = sci_exps + cal_exps
-# exps = cal_exps
-# exps = sci_exps
-
-# building the model
-source_size = 161  # pixels
-basis, window = dorito.bases.inscribed_annulus_basis(source_size, iterations=1)
-init_dist = np.ones((source_size, source_size)) / window.sum()
-
-model = dorito.models.TransformedResolvedModel(
-    exposures=exps,
-    optics=amigo.optical_models.AMIOptics(),
-    detector=amigo.detector_models.LinearDetector(),
-    ramp_model=amigo.ramp_models.NonLinearRamp(),
-    read=amigo.read_models.ReadModel(),
-    state=load_dict(cache + "calibration.npy"),
-    basis=basis,
-    window=window,
-    param_initers={"contrast": 0.04, "distribution": init_dist},
-)
-
-# model.params["aberrations"] = load_dict("files/HD135344B_CALFIT.npy")["aberrations"]
-
-# %%
 import sys
 import shutil
 
@@ -319,6 +306,46 @@ output_path = os.path.join(output_path, job_idx) + f"/{batch_idx}/"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
 print(f"Output path: {output_path}")
+
+
+load_dict = lambda x: np.load(f"{x}", allow_pickle=True).item()  # helper function
+
+# just two science exposures and one calibrator for this demo
+# sci_exps = [PRRotFit(file) for file in sci_files]
+sci_exps = [PRRotFit(file) for file in sci_files]
+cal_exps = [PointRotFit(file) for file in cal_files]
+exps = sci_exps + cal_exps
+# exps = cal_exps
+# exps = sci_exps
+
+# building the model
+# sizes = np.arange(30, 280, 10)
+# source_size = int(sizes[batch_idx])  # pixels
+source_size = 169
+basis, window = dorito.bases.inscribed_circ_basis(source_size)
+# basis, window = dorito.bases.inscribed_annulus_basis(source_size, iterations=1)
+init_dist = np.ones((source_size, source_size)) / window.sum()
+
+source_osamp = 1
+model = dorito.models.TransformedResolvedModel(
+    exposures=exps,
+    optics=amigo.optical_models.AMIOptics(oversample=source_osamp * 3),
+    detector=amigo.detector_models.LinearDetector(),
+    ramp_model=amigo.ramp_models.NonLinearRamp(),
+    read=amigo.read_models.ReadModel(),
+    state=load_dict(cache + "calibration.npy"),
+    basis=basis,
+    window=window,
+    source_oversample=source_osamp,
+    param_initers={"contrast": 0.25, "distribution": init_dist},
+)
+
+# model.params["aberrations"] = load_dict("files/HD135344B_CALFIT.npy")["aberrations"]
+
+# model.params["aberrations"] = load_dict("files/HD135344B_CALFIT.npy")["aberrations"]
+
+# %%
+
 
 
 for exp in exps:
@@ -377,72 +404,15 @@ pscale = lambda model: model.optics.psf_pixel_scale / model.optics.oversample
 
 
 # %%
-bool_window = np.array(model.window, dtype=bool)
-
-
-def get_distribution(
-    model,
-    exposure,
-    rotate: bool = None,
-    exponentiate=True,
-    window=True,
-    source_id: str = None,
-):
-
-    if source_id is None:
-        key = exposure.get_key("log_dist")
-    else:
-        key = "_".join((exposure.get_key("log_dist"), source_id))
-    coeffs = model.params["log_dist"][key]
-
-    # exponentiation
-    if exponentiate:
-        distribution = 10 ** model.basis.from_basis(coeffs)
-    else:
-        distribution = model.basis.from_basis(coeffs)
-
-    # windowing
-    if model.window is not None and window:
-        distribution = np.where(~bool_window, distribution.min(), distribution)
-        # distribution = distribution.at[~bool_window].set(distribution.min())
-        # distribution *= model.window
-
-    # rotation
-    if rotate is None:
-        rotate = model.rotate
-    if rotate:
-        distribution = exposure.rotate(distribution, clip=False)
-        distribution = np.where(~bool_window, distribution.min(), distribution)
-        # distribution = distribution.at[~bool_window].set(distribution.min())
-
-    return distribution
-
-
-def logTV(model, exposure, source_id=None):
-    return dorito.stats.TV_loss(get_distribution(model, exposure, exponentiate=False))
-
-
-# %%
-n_epoch = 1500
+n_epoch = 6000
 
 config = {
-    # "positions": sgd(3e-1, 0),
-    # "fluxes": sgd(2e-1, 0),
-    # "aberrations": sgd(2e-2, 4),
-    # "spectra": sgd(4e-1, 8),
-    # "log_dist": adam(5e-2, 20),
-    # "rotation": sgd(1e-9, 100),
-    # "log_dist": adam(5e-1, 30),
-    # "contrast": adam(2e-2, 15),
-    # "log_dist": adam(5e-2, 0),
-    # ALTOGETHER
-    "positions": sgd(1e-1, 0),
-    "fluxes": sgd(5e-2, 0),
-    "aberrations": sgd(8e-1, 4),
-    "spectra": sgd(3e-1, 8),
-    "log_dist": adam(5e-3, 20),
+    "positions": sgd(6e-1, 0, (500, 0)),
+    "fluxes": sgd(5e-1, 0),
+    "aberrations": sgd(2e-1, 4),
+    "spectra": sgd(5e-1, 8),
+    "log_dist": adam(2e-2, 20),
     "contrast": sgd(4e-6, 5),
-    # "log_dist": adam(5e-2, 20),
     "rotation": sgd(1e-8, 50),
 }
 
@@ -453,18 +423,20 @@ def grad_fn(model, grads, args):
     # if "spectra" in config.keys():
     #     grads = grads.multiply(spc_keys, 0.3)
 
-    if "fluxes" in config.keys():
-        grads = grads.multiply(flx_keys, 5)
-    if "positions" in config.keys():
-        grads = grads.multiply(pos_keys, 5)
+    # if "fluxes" in config.keys():
+    #     grads = grads.multiply(flx_keys, 5)
+    # if "positions" in config.keys():
+    #     grads = grads.multiply(pos_keys, 5)
     return grads, args
 
-tvs = np.concat((np.array([0]), np.logspace(-5, 0, 9)))
+mes = np.concat((np.array([0]), np.logspace(-3, 8, 15)))
+# tvs = np.concat((np.array([0]), np.logspace(-5, 0, 9)))
 args = {
     "reg_dict": {
         # "ME": (5e0, dorito.stats.ME),
         # "TV": (1e-2, dorito.stats.TV),
-        "TV": (float(tvs[batch_idx]), dorito.stats.TV),
+        # "TV": (float(tvs[batch_idx]), dorito.stats.TV),
+        "ME": (float(mes[batch_idx]), dorito.stats.ME),
         # "TV": (1e0, dorito.stats.TV),
     },
     "source_id": "TD",
@@ -547,12 +519,12 @@ for exp in exps:
         norm=mpl.colors.PowerNorm(0.5, vmin=None),
         # norm=mpl.colors.PowerNorm(0.3, vmax=0.3),
         diff_lim=0.5 * dlu.rad2arcsec(eff_wavel(model, exp.filter) / optics_diameter),
-        # scale=1.5,
+        scale=2.,
     )
 
     fig.colorbar(c0)
 
-    ax.set(title=f"HD135344B - {exp.filter}")  #   xticks=ticks, yticks=ticks)
+    ax.set(title=f"HD100546 - {exp.filter}")  #   xticks=ticks, yticks=ticks)
     ax.scatter([0], [0], marker="*", color="white", s=10)
 
     plt.tight_layout()
