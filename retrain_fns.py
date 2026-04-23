@@ -1,8 +1,111 @@
 import numpy as onp
 from jax import numpy as np, random as jr, tree as jtu
 from dorito.stats import apply_regularisers
+import dLux as dl
+from dLux import utils as dlu
+from amigo.model_fits import PointFit
 
+class BinaryFit(PointFit):
 
+    sub_exps: dict
+    unique_params: list
+
+    def __init__(self, file, unique_params=None):
+
+        super().__init__(file)
+
+        self.sub_exps = {
+            "A": PointFit(file),
+            "B": PointFit(file),
+        }
+
+        if unique_params is None:
+            unique_params = [
+                "spectra",
+            ]
+        self.unique_params = unique_params
+
+    def initialise_params(self, optics, one_on_fs_order=1):
+        params = super().initialise_params(optics, one_on_fs_order)
+        params["pas"] = (self.get_key("pas"), np.array(0.0))  # degrees
+        params["separations"] = (self.get_key("separations"), np.array(0.1))
+        params["contrasts"] = (self.get_key("contrasts"), np.array(0.5))
+        for param, (key, value) in params.items():
+            if param in self.unique_params:
+                params[param] = key, np.array(2*[value])  # one for each source
+
+        print(params["positions"])
+        print(params["spectra"])
+
+        return params
+
+    def get_key(self, param):
+        if param in ["pas"]:
+            return self.key
+        if param in ["separations"]:
+            return self.filter
+        return super().get_key(param)
+
+    def map_param(self, param):
+        if param in ["pas", "separations"]:
+            return f"{param}.{self.get_key(param)}"
+        return super().map_param(param)
+
+    def model_interferogram(self, model):
+
+        mean_pos = model.positions[self.get_key("positions")]
+        total_flux = 10 ** model.fluxes[self.get_key("fluxes")]
+
+        # Converting position angle from deg to radians
+        pa = dlu.deg2rad(model.pas[self.get_key("pas")])
+        separation = model.separations[self.get_key("separations")]
+        contrast = model.contrasts[self.get_key("contrasts")]
+
+        # separation vector d in radians
+        d = separation * np.array([np.cos(pa), np.sin(pa)])  # in radians
+
+        posA = mean_pos - d / 2  # brighter source
+        posB = mean_pos + d / 2  # dimmer source
+
+        logfluxA = np.log10(contrast * total_flux)
+        logfluxB = np.log10((1 - contrast) * total_flux)
+
+        modelA = model.set(self.map_param("positions"), posA).set(
+            self.map_param("fluxes"), logfluxA
+        )
+        modelB = model.set(self.map_param("positions"), posB).set(
+            self.map_param("fluxes"), logfluxB
+        )
+
+        # unpacking the unique parameters for each source
+        for param in self.unique_params:
+            pA, pB = model.get(self.map_param(param))
+            modelA = modelA.set(self.map_param(param), pA)
+            modelB = modelB.set(self.map_param(param), pB)
+
+        models = [modelA, modelB]
+
+        # TODO Vectorise this?
+        illuminances = []
+        for m in [modelA, modelB]:
+            psf = self.model_psf(m)
+            illuminance = self.model_illuminance(psf, m)
+            illuminances.append(illuminance.data)
+
+        illuminance = dl.PSF(np.array(illuminances).sum(axis=0), psf.pixel_scale)
+
+        ramp = self.model_ramp(illuminance, model)
+        ramp = self.model_read(ramp, model)
+
+        return ramp
+
+    def simulate(self, model, return_slopes: bool = True):
+
+        ramp = self.model_interferogram(model)
+
+        if return_slopes:
+            return ramp.set("data", np.diff(ramp.data, axis=0))
+        return ramp
 
 
 def ff_reg(model, exposure, ff_std=0.035):
