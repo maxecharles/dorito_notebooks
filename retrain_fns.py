@@ -34,9 +34,6 @@ class BinaryFit(PointFit):
             if param in self.unique_params:
                 params[param] = key, np.array(2*[value])  # one for each source
 
-        print(params["positions"])
-        print(params["spectra"])
-
         return params
 
     def get_key(self, param):
