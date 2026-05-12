@@ -40,7 +40,7 @@ class BinaryFit(PointFit):
         if param in ["pas"]:
             return self.key
         if param in ["separations"]:
-            return self.filter
+            return self.star
         return super().get_key(param)
 
     def map_param(self, param):
