@@ -5,6 +5,7 @@ import dLux as dl
 from dLux import utils as dlu
 from amigo.model_fits import PointFit
 
+
 class BinaryFit(PointFit):
 
     sub_exps: dict
@@ -32,7 +33,7 @@ class BinaryFit(PointFit):
         params["contrasts"] = (self.get_key("contrasts"), np.array(0.5))
         for param, (key, value) in params.items():
             if param in self.unique_params:
-                params[param] = key, np.array(2*[value])  # one for each source
+                params[param] = key, np.array(2 * [value])  # one for each source
 
         return params
 
@@ -54,7 +55,8 @@ class BinaryFit(PointFit):
         total_flux = 10 ** model.fluxes[self.get_key("fluxes")]
 
         # Converting position angle from deg to radians
-        pa = dlu.deg2rad(model.pas[self.get_key("pas")])
+        # and offsetting by JWST Parallactic Angle
+        pa = dlu.deg2rad(model.pas[self.get_key("pas")] - self.parang)
         separation = model.separations[self.get_key("separations")]
         contrast = model.contrasts[self.get_key("contrasts")]
 
@@ -109,9 +111,11 @@ def ff_reg(model, exposure, ff_std=0.035):
     ff_norm = model.FF - 1
     return -np.mean((ff_norm / ff_std) ** 2)
 
+
 def nl_reg(model, exposure, nl_std=0.025):
     nl_norm = model.non_linearity - model.non_linearity.mean()
     return -np.mean((nl_norm / nl_std) ** 2)
+
 
 def loss_fn(model, exposure, args={}):
 
@@ -189,6 +193,7 @@ def grads_fn(model, grads, args):
     grads = grads.set("params", grad_params)
     return grads, args
 
+
 def aux_fn(batch_key, aux_dict, aux):
     # Aux should have exposure keys, with values (likelihood, prior)
     for exp_key, val in aux.items():
@@ -198,6 +203,7 @@ def aux_fn(batch_key, aux_dict, aux):
         # TODO Edit Trainer class so this is not hardcoded
         aux_dict["l2_reg"][aux_key].append(onp.array(val[1]))
     return aux_dict
+
 
 def looper_fn(loss_dict, aux_dict):
 
