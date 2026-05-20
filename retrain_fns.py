@@ -3,9 +3,80 @@ from jax import numpy as np, random as jr, tree as jtu
 from dorito.stats import apply_regularisers
 import dLux as dl
 from dLux import utils as dlu
-from amigo.model_fits import PointFit
+from amigo.model_fits import ModelFit, PointFit
 
 
+class DarkFit(ModelFit):
+
+    def __init__(self, file, fit_one_on_fs=False, **kwargs):
+        file[0].header["IS_PSF"] = False
+
+        super().__init__(file, **kwargs)
+        self.star = "NIS_DARK"
+        self.observation = "DARK"
+        self.program = "DARK"
+        self.fit_one_on_fs = fit_one_on_fs
+        self.fit_reflectivity = False
+        self.fit_bias = False
+        self.validator = False
+
+    def print_summary(self):
+        print(
+            f"File {self.key}\n"
+            f"Star {self.star}\n"
+            f"nints {self.nints}\n"
+            f"ngroups {len(self.slopes)+1}\n"
+        )
+
+    def initialise_params(self, optics, vis_model=None, one_on_fs_order=1):
+        params = {}
+
+        im = np.where(self.badpix, np.nan, self.slopes[0])
+        # psf = np.where(np.isnan(im), 0.0, im)
+
+        # dark current
+        params["dark_A"] = (
+            self.get_key("dark_A"),
+            np.array(0.443),
+        )
+
+        # One on fs
+        if self.fit_one_on_fs:
+            params["one_on_fs"] = (
+                self.get_key("one_on_fs"),
+                np.zeros((self.ngroups, 80, one_on_fs_order + 1)),
+            )
+
+        return params
+
+    @property
+    def key(self):
+        return "_".join(["dark", str(self.ngroups)])
+
+    def model_illuminance(self, model):
+        """
+        There is no illuminance! Haha!
+        """
+        # Get the pixel scale (arcseconds)
+        pixel_scale = model.optics.psf_pixel_scale / model.optics.oversample
+        npix = model.optics.psf_npixels * model.optics.oversample
+
+        # illuminance is just zeros
+        illuminance = np.zeros((npix, npix))
+
+        # Make the object and return
+        return dl.PSF(illuminance, dlu.arcsec2rad(pixel_scale))
+
+    def simulate(self, model, return_slopes=False):
+        illuminance = self.model_illuminance(model)
+        ramp = self.model_ramp(illuminance, model)
+        ramp = self.model_read(ramp, model)
+
+        if return_slopes:
+            return ramp.set("data", np.diff(ramp.data, axis=0))
+        return ramp
+
+        
 class BinaryFit(PointFit):
 
     sub_exps: dict
