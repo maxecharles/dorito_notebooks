@@ -110,13 +110,16 @@ class BinaryFit(PointFit):
 
     def get_key(self, param):
         if param in ["pas"]:
-            return self.key
+            # return self.key
+            return self.star
         if param in ["separations"]:
             return self.star
+        if param in ["contrasts"]:
+            return "_".join([self.star, self.filter])
         return super().get_key(param)
 
     def map_param(self, param):
-        if param in ["pas", "separations"]:
+        if param in ["pas", "separations", "contrasts"]:
             return f"{param}.{self.get_key(param)}"
         return super().map_param(param)
 
