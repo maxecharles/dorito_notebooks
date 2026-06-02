@@ -183,12 +183,12 @@ class BinaryFit(PointFit):
 
 def ff_reg(model, exposure, ff_std=0.035):
     ff_norm = model.FF - 1
-    return -np.mean((ff_norm / ff_std) ** 2)
+    return np.mean((ff_norm / ff_std) ** 2)
 
 
 def nl_reg(model, exposure, nl_std=0.025):
     nl_norm = model.non_linearity - model.non_linearity.mean()
-    return -np.mean((nl_norm / nl_std) ** 2)
+    return np.mean((nl_norm / nl_std) ** 2)
 
 
 def loss_fn(model, exposure, args={}):
