@@ -4,6 +4,7 @@ from dorito.stats import apply_regularisers
 import dLux as dl
 from dLux import utils as dlu
 from amigo.model_fits import ModelFit, PointFit
+import pandas as pd
 
 
 class DarkFit(ModelFit):
@@ -82,9 +83,12 @@ class BinaryFit(PointFit):
     sub_exps: dict
     unique_params: list
 
-    def __init__(self, file, unique_params=None):
+    def __init__(self, file, unique_params=None, calibrator=True):
 
         super().__init__(file)
+
+        # OVERIDE self.calbrator
+        self.calibrator = calibrator
 
         self.sub_exps = {
             "A": PointFit(file),
@@ -324,3 +328,77 @@ def looper_fn(loss_dict, aux_dict):
             print_str += f" \u0394 {np.diff(prior)[-1]:.2f}"
 
     return print_str
+
+    
+class Tee:
+    def __init__(self, filename):
+        self.file = open(filename, "w")
+        self.stdout = sys.stdout
+
+    def write(self, message):
+        self.stdout.write(message)
+        self.file.write(message)
+
+    def flush(self):
+        self.stdout.flush()
+        self.file.flush()
+
+
+# Visualising metadata in a table
+def summarise_files(files):
+    prog_ids = []
+    fnames = []
+    targets = []
+    filts = []
+    diths = []
+    ngroups = []
+    time = []
+    pis = []
+    cals = []
+
+    for file in files:
+        header = file[0].header
+
+        prog_ids.append(header["PROGRAM"][1:])
+        fnames.append(header["FILENAME"][:25])
+        targets.append(header["TARGPROP"])
+        filts.append(header["FILTER"])
+        diths.append(f"{header["PATT_NUM"]}/{header["NUMDTHPT"]}")
+        ngroups.append(f"{header["NGROUPS"]}/{header["NINTS"]}")
+        time.append(header["DATE-BEG"])
+        pis.append(header["PI_NAME"])
+        try:
+            cals.append(header["IS_PSF"])
+        except KeyError:
+            cals.append("FLAT")
+
+    df = pd.DataFrame(
+        {
+            "program": prog_ids,
+            # "filename": fnames,
+            "target": targets,
+            "filter": filts,
+            "dither": diths,
+            "g/i": ngroups,
+            "date": time,
+            "PI": pis,
+            "CAL": cals,
+        }
+    )
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date").reset_index(drop=True)
+    df = df.assign(date=pd.to_datetime(df["date"]).dt.strftime("%d-%m-%Y"))
+
+    with pd.option_context(
+        "display.expand_frame_repr",
+        False,
+        "display.max_columns",
+        None,
+        "display.max_rows",
+        None,
+        "display.width",
+        1000,
+    ):
+        print(df)
+
+    # df.to_excel("cal_data.xlsx", index=False)
