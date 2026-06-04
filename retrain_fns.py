@@ -5,6 +5,7 @@ import dLux as dl
 from dLux import utils as dlu
 from amigo.model_fits import ModelFit, PointFit
 import pandas as pd
+import sys
 
 
 class DarkFit(ModelFit):
