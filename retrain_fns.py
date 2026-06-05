@@ -178,9 +178,8 @@ class BinaryFit(PointFit):
         return ramp
 
     def simulate(self, model, return_slopes: bool = True):
-
+        model = self.nuke_pixel_grads(model)
         ramp = self.model_interferogram(model)
-
         if return_slopes:
             return ramp.set("data", np.diff(ramp.data, axis=0))
         return ramp
