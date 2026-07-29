@@ -6,6 +6,10 @@ from dLux import utils as dlu
 from amigo.model_fits import ModelFit, PointFit
 import pandas as pd
 import sys
+import amigo
+import matplotlib as mpl
+from matplotlib import pyplot as plt
+import os
 
 
 class DarkFit(ModelFit):
@@ -402,3 +406,399 @@ def summarise_files(files):
         print(df)
 
     # df.to_excel("cal_data.xlsx", index=False)
+
+def get_cmap(cmap_name: str):
+    cmap = mpl.colormaps[cmap_name]
+    cmap.set_bad("k", 0.5)
+    return cmap
+    
+
+def summarise_fn(
+    result,
+    save_path,
+    val_flag=False,
+    save_flag=False,
+    flat_flag=False,
+    flat_only=False,
+    cal_exposures=[],
+    val_exposures=[],
+    flat_exposures=[],
+    calpsf_exposures=[],
+    calbin_exposures=[],
+    badpix=None,
+    n_batch=None,
+    optimisers={},
+    ):
+
+    inferno_r = get_cmap("inferno_r")
+    inferno = get_cmap("inferno")
+    seismic = get_cmap("seismic")
+    
+    ################### SAVING RESULTS ###################
+    if val_flag:
+        # Unwrapping into cal, val, and flat
+        aux_history = jtu.map(
+            lambda x: np.array(x), result.aux, is_leaf=lambda x: isinstance(x, list)
+        )
+        
+        cal, val, flat = [], [], []
+        for (batch_key, exp_key), value in aux_history["loglike"].items():
+            if "cal" in batch_key:
+                cal.append(value)
+            if "val" in batch_key:
+                val.append(value)
+            if "flat" in batch_key:
+                flat.append(value)
+        cal = np.array(cal)
+        val = np.array(val)
+        flat = np.array(flat)
+    
+    if val_flag:
+        # Finding BEST STATE from the fit
+        mean_val = np.array(val).mean(0)  # mean loss for validators
+        best = mean_val.min()  # best state is where the validator loss was minimum
+        idx = np.where(mean_val == best)[0][0]
+        test_aux = jtu.map(
+            lambda x: x[: idx + 1], result.aux, is_leaf=lambda x: isinstance(x, list)
+        )
+        print(f"Best: {idx}")
+        print(looper_fn(result.losses, test_aux))
+    
+    if save_flag:
+        try:
+            # --- best_state.npy ---
+            # model_params from the epoch with best validation loss,
+            # with nn_weights replaced by the mean across all batches
+            # of that epoch (since nn_weights is a batched parameter,
+            # best_state only contains its value at the final batch)
+            best_params = result.best_state.params
+            best_params["nn_weights"] = np.array(
+                result.best_batch["nn_weights"]
+            ).mean(0)
+            np.save(
+                os.path.join(save_path, "best_state.npy"),
+                best_params,
+                allow_pickle=True,
+            )
+    
+        except Exception as e:
+            print(f"Saving best state failed: {e}")
+        
+        # --- final_state.npy ---
+        # model_params from the final epoch of training,
+        # independent of validation loss
+        final_params = result.state.params
+        final_params["nn_weights"] = np.array(
+            result.history["nn_weights"]  # all batches of final epoch
+        )[-n_batch:].mean(0)
+        np.save(
+            os.path.join(save_path, "final_state.npy"),
+            final_params,
+            allow_pickle=True,
+        )
+    
+
+    
+    ################## PLOTTING LOSSES ###################
+
+    start, stop = 50, -1
+    
+    if val_flag:
+        #
+        # epochs = cal.shape[-1]
+        # start, stop = 500, -1
+        
+        if start >= cal.shape[-1]:
+            start = 1
+        
+        if stop < 0:
+            stop = cal.shape[-1] + stop
+        xs = np.arange(start, stop)
+        
+        # print(np.array(cal).mean(0)[xs].shape)
+        
+        plt.figure(figsize=(18, 4))
+        ax = plt.subplot(1, 3, 1)
+        plt.plot(xs, np.array(cal).mean(0)[xs])
+        ax.set(title="Calibrators", xlabel="Epochs", ylabel="Loss")
+        
+        ax = plt.subplot(1, 3, 2)
+        ax.set(title="Validators", xlabel="Epochs", ylabel="Loss")
+        if val_flag:
+            plt.plot(xs, np.array(val).mean(0)[xs])
+        
+        ax = plt.subplot(1, 3, 3)
+        ax.set(title="Flat", xlabel="Epochs", ylabel="Loss")
+        if flat_flag:
+            plt.plot(xs, np.array(flat).mean(0)[xs])
+        
+        plt.tight_layout()
+        if save_flag:
+            plt.savefig(os.path.join(save_path, "mean_losses.png"), dpi=200)
+        plt.show()
+        
+        ###
+        
+        plt.figure(figsize=(18, 4))
+        ax = plt.subplot(1, 3, 1)
+        ax.set(title="Calibrators", xlabel="Epochs", ylabel="Loss")
+        [plt.plot(xs, ys[xs]) for ys in cal]
+        
+        ax = plt.subplot(1, 3, 2)
+        if val_flag:
+            ax.set(title="Validators", xlabel="Epochs", ylabel="Loss")
+        [plt.plot(xs, ys[xs]) for ys in val]
+        
+        ax = plt.subplot(1, 3, 3)
+        ax.set(title="Flat", xlabel="Epochs", ylabel="Loss")
+        if flat_flag:
+            [plt.plot(xs, ys[xs]) for ys in flat]
+        
+        plt.tight_layout()
+        if save_flag:
+            plt.savefig(os.path.join(save_path, "all_losses.png"), dpi=200)
+        plt.show()
+    
+    else:
+        amigo.plotting.plot_losses(list(result.losses.values())[0], start=start, save_path=save_path)
+        
+
+    ################### PLOTTING HISTORY AND SUMMARISE FIT ###################
+    amigo.plotting.plot(result.history, save_path=save_path)
+    
+    exposures_lists = [cal_exposures]
+    exp_types = ["cal"]
+    if val_flag:
+        exp_types += ["val"]
+        exposures_lists += [val_exposures]
+    if flat_flag:
+        exp_types += ["flat"]
+        exposures_lists += [flat_exposures]
+        
+    for exp_type, exps in zip(exp_types, exposures_lists):
+        print(5*"\n")
+        print(exp_type)
+        if flat_only and exp_type != "flat":
+            continue
+        if save_path is not None:
+            this_save_path = os.path.join(save_path, exp_type)
+            os.mkdir(this_save_path)
+        else:
+            this_save_path = None
+        for exp in exps:
+            exp.print_summary()
+            amigo.plotting.summarise_fit(result.model, exp, save_path=this_save_path)
+
+    ################### PIXEL SENSITIVITY AND NON-LINEARITY ###################
+
+    print(badpix)
+    
+    badpix_bool = badpix.astype(bool)
+    
+    FF = result.model.FF.at[badpix_bool].set(np.nan)
+    non_lin = result.model.non_linearity[0].at[badpix_bool].set(np.nan)
+    
+    ff_xs = np.linspace(np.nanmin(FF), np.nanmax(FF), 100) - 1
+    ff_l2 = np.exp(-((ff_xs / 0.035) ** 2))
+    
+    med_nl = np.nanmedian(non_lin)
+    nl_xs = np.linspace(np.nanmin(non_lin), np.nanmax(non_lin), 100)
+    nl_l2 = np.exp(-(((nl_xs - med_nl) / 0.025) ** 2))
+    
+    
+    fig, axes = plt.subplots(2, 2, figsize=(8, 6))
+    
+    ax1, ax2, ax3, ax4 = axes.flatten()
+    
+    # Pixel sensitivity
+    ax1.set_title("Sensitivity (FF)")
+    im1 = ax1.imshow(FF, seismic, norm=mpl.colors.CenteredNorm(1))
+    fig.colorbar(im1, ax=ax1)
+    
+    # Linear (imshow)
+    ax2.set_title("Non-linearity")
+    im2 = ax2.imshow(non_lin, inferno_r, vmax=None)
+    fig.colorbar(im2, ax=ax2)
+    
+    # FF histogram
+    ax3.set_title("FF")
+    ax3.hist(FF[::2].flatten(), bins=100, density=True)
+    ax3.hist(FF[1::2].flatten(), bins=100, alpha=0.75, density=True)
+    ax3.plot(ff_xs + 1, 25 * ff_l2, label="L2", c="k")
+    
+    # Linear histogram
+    ax4.set_title("non-linearity")
+    ax4.hist(non_lin[::2].flatten(), bins=100)
+    ax4.hist(non_lin[1::2].flatten(), bins=100, alpha=0.75)
+    ax4.plot(nl_xs, 150 * nl_l2, label="L2", c="k")
+    
+    fig.tight_layout()
+    if save_flag:
+        plt.savefig(os.path.join(save_path, "pixels.png"), dpi=300)
+    plt.show()
+
+
+    ################### WAVEFRONT ###################
+
+    optics = result.model.optics
+    pupil_mask = result.model.optics.pupil_mask
+    
+    rms = lambda x: np.sqrt(np.nanmean(np.square(x)))
+    
+    if "aberrations" in optimisers.keys():
+        for prog in ["4481", "8330", "1093", "1843", "1242"]:
+            print(prog)
+            cal_aberrations = {key: val for key, val in result.state.aberrations.items() if prog in key}  # NOTE USE ALL 
+            
+            fig, axes = plt.subplots(2, 3, figsize=(12, 6))
+            for i, key in enumerate(cal_aberrations):
+            
+                coeffs = result.model.aberrations[key]
+                full_abb = pupil_mask.set("abb_coeffs", coeffs).calc_aberrations()
+                flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
+            
+                mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+            
+                full_abb = np.where(mask < 1.0, np.nan, 1e9 * full_abb)
+                flat_abb = np.where(mask < 1.0, np.nan, 1e9 * flat_abb)
+            
+                full_abb -= np.nanmean(full_abb)
+                flat_abb -= np.nanmean(flat_abb)
+            
+                ax_top = axes[0, i]
+                ax_bot = axes[1, i]
+            
+                v = np.nanmax(np.abs(full_abb))
+                ax_top.set_title(f"{key} — Full OPD (RMS: {rms(full_abb):.2f} nm)")
+                im_top = ax_top.imshow(full_abb, cmap=seismic, vmin=-v, vmax=v)
+                fig.colorbar(im_top, ax=ax_top, label="OPD (nm)")
+            
+                v = np.nanmax(np.abs(flat_abb))
+                ax_bot.set_title(f"{key} — FLAT OPD (RMS: {rms(flat_abb):.2f} nm)")
+                im_bot = ax_bot.imshow(flat_abb, cmap=seismic, vmin=-v, vmax=v)
+                fig.colorbar(im_bot, ax=ax_bot, label="OPD (nm)")
+            
+            fig.tight_layout()
+            if save_flag:
+                plt.savefig(os.path.join(save_path, f"wavefront_{prog}.png"), dpi=300)
+                plt.close()
+            else:
+                plt.show()
+
+    
+    ################### PUPIL AND BEAM DISTORTIONS ###################
+
+    null_pupil_mask = result.model.optics.pupil_mask.multiply("primary_beam", 0.0).multiply("distortion", 0.0)
+    null_mask = null_pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+    
+    pupil_mask = result.model.optics.pupil_mask
+    mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+    
+    fig, ax = plt.subplots(figsize=(3, 2))
+    
+    ax.set_title("Pupil & Beam Distortions")
+    im = ax.imshow(mask - null_mask, cmap="berlin", norm=mpl.colors.CenteredNorm())
+    fig.colorbar(im, ax=ax)
+    
+    fig.tight_layout()
+    if save_flag:
+        plt.savefig(os.path.join(save_path, "pupil_beam.png"), dpi=300)
+        plt.close()
+    else:
+        plt.show()
+
+    
+    ################### SLOPE PLOTS ###################
+
+    # Create the cal exposure dictionaries
+    cal_dict = {}
+    for exp in calpsf_exposures:
+        if exp.filter not in cal_dict:
+            cal_dict[exp.filter] = []
+        cal_dict[exp.filter].append(exp)
+    
+    # Create the val exposure dictionaries
+    val_dict = {}
+    for exp in val_exposures:
+        if exp.filter not in val_dict:
+            val_dict[exp.filter] = []
+        val_dict[exp.filter].append(exp)
+
+
+    from amigo.misc import convert_adjacent_to_true
+    
+    if save_flag:
+        this_save_path = os.path.join(save_path, "slope_res")
+        os.mkdir(this_save_path)
+    
+    exp_types = ["cal", "val"] if val_flag else ["cal"]
+    exp_dicts = [cal_dict, val_dict] if val_flag else [cal_dict]
+    
+    for typ, dic in zip(exp_types, exp_dicts):
+        for idx, (filt, _) in enumerate(dic.items()):
+            n = 2
+            k = 2 * n + 1
+        
+            for exp in dic[filt]:
+    
+                print(exp)
+        
+                slopes = exp(result.model)
+                im = slopes.sum(0)
+                peak_pix = im == np.nanmax(im)
+                peak_map = convert_adjacent_to_true(peak_pix, corners=True, n=n)
+        
+                ######### plotting #########
+                max_loc = np.argwhere(peak_pix)[0][::-1]
+                square = mpl.patches.Rectangle(max_loc - np.array([2.5, 2.5]), 5, 5, color="r", fill=False)
+        
+                fig, ax = plt.subplots(figsize=(3, 2))
+                c = ax.imshow(im, "cividis", norm=mpl.colors.PowerNorm(0.5))
+                ax.add_patch(square)
+                ax.set(title=f"Cropping: {filt}")
+                ax.axis("off")
+                fig.colorbar(c, ax=ax, label="Counts")
+                if save_flag:
+                    plt.savefig(os.path.join(this_save_path, f"{typ}_crop_{filt}.png"), dpi=300)
+                    plt.close()
+                else:
+                    plt.show()
+                ############################
+        
+                ind = np.where(peak_map)
+                model_slopes = slopes[:, *ind].reshape(-1, k, k)
+                data_slopes = exp.slopes[:, *ind].reshape(-1, k, k)
+                data_std = exp.variance[:, *ind].reshape(-1, k, k) ** 0.5
+        
+                xs = np.arange(len(slopes))
+        
+                fig, axes = plt.subplots(k, k, figsize=(3 * k, 3 * k), sharex="col")
+                # fig.suptitle(filt)
+        
+                for i in range(k):
+                    for j in range(k):
+                        ax = axes[i, j]
+        
+                        if i == k - 1:
+                            ax.set_xlabel("Slope Index")
+                        else:
+                            ax.tick_params(labelbottom=False)
+                        if j == 0:
+                            ax.set_ylabel("Slope (e- / group)")
+        
+                        ax.errorbar(
+                            xs, data_slopes[:, i, j], yerr=data_std[:, i, j],
+                            marker='o', capsize=5, label="Data",
+                        )
+                        ax.errorbar(
+                            xs, model_slopes[:, i, j],
+                            marker='x', capsize=5, label="Model"
+                        )
+                        ax.legend()
+        
+                # fig.tight_layout()
+                if save_flag:
+                    plt.savefig(os.path.join(this_save_path, f"{typ}_slope_{filt}.png"), dpi=300)
+                    plt.close()
+                else:
+                    plt.show()
