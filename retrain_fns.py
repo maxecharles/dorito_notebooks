@@ -639,51 +639,56 @@ def summarise_fn(
 
 
     ################### WAVEFRONT ###################
-
-    optics = result.model.optics
-    pupil_mask = result.model.optics.pupil_mask
+    try:
     
-    rms = lambda x: np.sqrt(np.nanmean(np.square(x)))
-    
-    if "aberrations" in optimisers.keys():
-        for prog in ["4481", "8330", "1093", "1843", "1242"]:
-            print(prog)
-            cal_aberrations = {key: val for key, val in result.state.aberrations.items() if prog in key}  # NOTE USE ALL 
-            
-            fig, axes = plt.subplots(2, 3, figsize=(12, 6))
-            for i, key in enumerate(cal_aberrations):
-            
-                coeffs = result.model.aberrations[key]
-                full_abb = pupil_mask.set("abb_coeffs", coeffs).calc_aberrations()
-                flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
-            
-                mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
-            
-                full_abb = np.where(mask < 1.0, np.nan, 1e9 * full_abb)
-                flat_abb = np.where(mask < 1.0, np.nan, 1e9 * flat_abb)
-            
-                full_abb -= np.nanmean(full_abb)
-                flat_abb -= np.nanmean(flat_abb)
-            
-                ax_top = axes[0, i]
-                ax_bot = axes[1, i]
-            
-                v = np.nanmax(np.abs(full_abb))
-                ax_top.set_title(f"{key} — Full OPD (RMS: {rms(full_abb):.2f} nm)")
-                im_top = ax_top.imshow(full_abb, cmap=seismic, vmin=-v, vmax=v)
-                fig.colorbar(im_top, ax=ax_top, label="OPD (nm)")
-            
-                v = np.nanmax(np.abs(flat_abb))
-                ax_bot.set_title(f"{key} — FLAT OPD (RMS: {rms(flat_abb):.2f} nm)")
-                im_bot = ax_bot.imshow(flat_abb, cmap=seismic, vmin=-v, vmax=v)
-                fig.colorbar(im_bot, ax=ax_bot, label="OPD (nm)")
-            
-            fig.tight_layout()
-            if save_flag:
-                plt.savefig(os.path.join(save_path, f"wavefront_{prog}.png"), dpi=300)
-                plt.close()
-            else:
-                plt.show()
+        optics = result.model.optics
+        pupil_mask = result.model.optics.pupil_mask
+        
+        rms = lambda x: np.sqrt(np.nanmean(np.square(x)))
+        
+        if "aberrations" in optimisers.keys():
+            for prog in ["4481", "8330", "1093", "1843", "1242"]:
+                print(prog)
+                cal_aberrations = {key: val for key, val in result.state.aberrations.items() if prog in key}  # NOTE USE ALL 
+                
+                fig, axes = plt.subplots(2, 3, figsize=(12, 6))
+                for i, key in enumerate(cal_aberrations):
+                
+                    coeffs = result.model.aberrations[key]
+                    full_abb = pupil_mask.set("abb_coeffs", coeffs).calc_aberrations()
+                    flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
+                
+                    mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+                
+                    full_abb = np.where(mask < 1.0, np.nan, 1e9 * full_abb)
+                    flat_abb = np.where(mask < 1.0, np.nan, 1e9 * flat_abb)
+                
+                    full_abb -= np.nanmean(full_abb)
+                    flat_abb -= np.nanmean(flat_abb)
+                
+                    ax_top = axes[0, i]
+                    ax_bot = axes[1, i]
+                
+                    v = np.nanmax(np.abs(full_abb))
+                    ax_top.set_title(f"{key} — Full OPD (RMS: {rms(full_abb):.2f} nm)")
+                    im_top = ax_top.imshow(full_abb, cmap=seismic, vmin=-v, vmax=v)
+                    fig.colorbar(im_top, ax=ax_top, label="OPD (nm)")
+                
+                    v = np.nanmax(np.abs(flat_abb))
+                    ax_bot.set_title(f"{key} — FLAT OPD (RMS: {rms(flat_abb):.2f} nm)")
+                    im_bot = ax_bot.imshow(flat_abb, cmap=seismic, vmin=-v, vmax=v)
+                    fig.colorbar(im_bot, ax=ax_bot, label="OPD (nm)")
+                
+                fig.tight_layout()
+                if save_flag:
+                    plt.savefig(os.path.join(save_path, f"wavefront_{prog}.png"), dpi=300)
+                    plt.close()
+                else:
+                    plt.show()
+                    
+    except Exception as e:
+        print(f"Plotting wavefront failed: {e}")
+        
 
     
     ################### PUPIL AND BEAM DISTORTIONS ###################
