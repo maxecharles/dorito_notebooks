@@ -807,3 +807,19 @@ def summarise_fn(
                     plt.close()
                 else:
                     plt.show()
+
+
+nn_setup_options = [
+    {"hidden_width": 16, "n_hidden_layers": 3},
+    {"hidden_width": 14, "n_hidden_layers": 3},
+    {"hidden_width": 12, "n_hidden_layers": 3},
+    {"hidden_width": 10, "n_hidden_layers": 3},
+    {"hidden_width": 8, "n_hidden_layers": 3},
+    {"hidden_width": 6, "n_hidden_layers": 3},
+    {"hidden_width": 16, "n_hidden_layers": 2},
+    {"hidden_width": 14, "n_hidden_layers": 2},
+    {"hidden_width": 12, "n_hidden_layers": 2},
+    {"hidden_width": 10, "n_hidden_layers": 2},
+    {"hidden_width": 8, "n_hidden_layers": 2},
+    {"hidden_width": 6, "n_hidden_layers": 2},
+]
