@@ -4,6 +4,7 @@ from dorito.stats import apply_regularisers
 import dLux as dl
 from dLux import utils as dlu
 from amigo.model_fits import ModelFit, PointFit
+from amigo.optical_models import AMIOptics
 import pandas as pd
 import sys
 import amigo
@@ -413,6 +414,7 @@ def get_cmap(cmap_name: str):
     return cmap
     
 
+
 def summarise_fn(
     result,
     save_path,
@@ -420,6 +422,7 @@ def summarise_fn(
     save_flag=False,
     flat_flag=False,
     flat_only=False,
+    static_optics=False,
     cal_exposures=[],
     val_exposures=[],
     flat_exposures=[],
@@ -657,8 +660,11 @@ def summarise_fn(
                     coeffs = result.model.aberrations[key]
                     full_abb = pupil_mask.set("abb_coeffs", coeffs).calc_aberrations()
                     flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
-                
-                    mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+                    
+                    if static_optics:
+                        mask = optics.transmission
+                    else:
+                        mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
                 
                     full_abb = np.where(mask < 1.0, np.nan, 1e9 * full_abb)
                     flat_abb = np.where(mask < 1.0, np.nan, 1e9 * flat_abb)
@@ -693,12 +699,20 @@ def summarise_fn(
     
     ################### PUPIL AND BEAM DISTORTIONS ###################
 
-    null_pupil_mask = result.model.optics.pupil_mask.multiply("primary_beam", 0.0).multiply("distortion", 0.0)
-    null_mask = null_pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
-    
-    pupil_mask = result.model.optics.pupil_mask
-    mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
-    
+    if not static_optics:
+        null_pupil_mask = result.model.optics.pupil_mask.multiply("primary_beam", 0.0).multiply("distortion", 0.0)
+        null_mask = null_pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+        
+        pupil_mask = result.model.optics.pupil_mask
+        mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+        
+    else:
+        raw_optics = AMIOptics(static=False)
+        null_pupil_mask = raw_optics.pupil_mask.multiply("primary_beam", 0.0).multiply("distortion", 0.0)
+        null_mask = null_pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+
+        mask = result.model.optics.transmission
+        
     fig, ax = plt.subplots(figsize=(3, 2))
     
     ax.set_title("Pupil & Beam Distortions")
@@ -711,6 +725,8 @@ def summarise_fn(
         plt.close()
     else:
         plt.show()
+
+        
 
     
     ################### SLOPE PLOTS ###################
@@ -807,6 +823,7 @@ def summarise_fn(
                     plt.close()
                 else:
                     plt.show()
+
 
 
 nn_setup_options = [
