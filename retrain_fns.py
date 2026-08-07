@@ -431,6 +431,7 @@ def summarise_fn(
     badpix=None,
     n_batch=None,
     optimisers={},
+    amigo_files_path="",
     ):
 
     inferno_r = get_cmap("inferno_r")
@@ -499,6 +500,39 @@ def summarise_fn(
             final_params,
             allow_pickle=True,
         )
+    else:
+        try:
+            # --- best_state.npy ---
+            # model_params from the epoch with best validation loss,
+            # with nn_weights replaced by the mean across all batches
+            # of that epoch (since nn_weights is a batched parameter,
+            # best_state only contains its value at the final batch)
+            best_params = result.best_state.params
+            best_params["nn_weights"] = np.array(
+                result.best_batch["nn_weights"]
+            ).mean(0)
+            np.save(
+                os.path.join(amigo_files_path, "scratch_best_state.npy"),
+                best_params,
+                allow_pickle=True,
+            )
+    
+        except Exception as e:
+            print(f"Saving best state failed: {e}")
+        
+        # --- final_state.npy ---
+        # model_params from the final epoch of training,
+        # independent of validation loss
+        final_params = result.state.params
+        final_params["nn_weights"] = np.array(
+            result.history["nn_weights"]  # all batches of final epoch
+        )[-n_batch:].mean(0)
+        np.save(
+            os.path.join(amigo_files_path, "scratch_final_state.npy"),
+            final_params,
+            allow_pickle=True,
+        )
+            
     
 
     
