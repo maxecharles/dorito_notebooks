@@ -419,6 +419,7 @@ def summarise_fn(
     result,
     save_path,
     val_flag=False,
+    binary_flag=False,
     save_flag=False,
     flat_flag=False,
     flat_only=False,
@@ -437,6 +438,27 @@ def summarise_fn(
     inferno_r = get_cmap("inferno_r")
     inferno = get_cmap("inferno")
     seismic = get_cmap("seismic")
+
+    params_to_save = [
+        "fluxes",
+        "positions",
+        "aberrations",
+        "nn_weights", 
+        "distortion",
+        "primary_beam",
+        "defocus",
+        "sigma",
+        "dark_current",
+        "non_linearity",
+        "FF",
+        "spectra",
+    ]
+
+    if flat_flag:
+        params_to_save += ["flat_coeffs"]
+    
+    if binary_flag:
+        params_to_save += ["pas", "separations", "contrasts"]
     
     ################### SAVING RESULTS ###################
     if val_flag:
@@ -457,7 +479,6 @@ def summarise_fn(
         val = np.array(val)
         flat = np.array(flat)
     
-    if val_flag:
         # Finding BEST STATE from the fit
         mean_val = np.array(val).mean(0)  # mean loss for validators
         best = mean_val.min()  # best state is where the validator loss was minimum
@@ -491,7 +512,7 @@ def summarise_fn(
         # --- final_state.npy ---
         # model_params from the final epoch of training,
         # independent of validation loss
-        final_params = result.state.params
+        final_params = {key: result.model.get(key) for key in params_to_save}
         final_params["nn_weights"] = np.array(
             result.history["nn_weights"]  # all batches of final epoch
         )[-n_batch:].mean(0)
@@ -523,7 +544,7 @@ def summarise_fn(
         # --- final_state.npy ---
         # model_params from the final epoch of training,
         # independent of validation loss
-        final_params = result.state.params
+        final_params = {key: result.model.get(key) for key in params_to_save}
         final_params["nn_weights"] = np.array(
             result.history["nn_weights"]  # all batches of final epoch
         )[-n_batch:].mean(0)
