@@ -138,14 +138,21 @@ class BinaryFit(PointFit):
         mean_pos = model.positions[self.get_key("positions")]
         total_flux = 10 ** model.fluxes[self.get_key("fluxes")]
 
-        # Converting position angle from deg to radians
-        # and offsetting by JWST Parallactic Angle
-        pa = dlu.deg2rad(model.pas[self.get_key("pas")] - self.parang)
+        pa = model.pas[self.get_key("pas")]  # in degrees, measured from N toward E
+        
         separation = model.separations[self.get_key("separations")]
         contrast = model.contrasts[self.get_key("contrasts")]
 
+        # Converting position angle from deg to radians
+        # and offsetting by JWST Parallactic Angle (ROLL_REF)
+        phi = dlu.deg2rad((90 + pa) - self.parang)      
+    
         # separation vector d in radians
-        d = separation * np.array([np.cos(pa), np.sin(pa)])  # in radians
+        # I believe it's negative cos for x co-ordinate because
+        # of the YAxis Flip in the optical model. 
+        # TODO Check this
+        d = separation * np.array([-np.cos(phi), np.sin(phi)])  # in radians
+        # d = separation * np.array([np.cos(phi), np.sin(phi)])  # in radians
 
         posA = mean_pos - d / 2  # brighter source
         posB = mean_pos + d / 2  # dimmer source
@@ -497,9 +504,10 @@ def summarise_fn(
             # of that epoch (since nn_weights is a batched parameter,
             # best_state only contains its value at the final batch)
             best_params = result.best_state.params
-            best_params["nn_weights"] = np.array(
-                result.best_batch["nn_weights"]
-            ).mean(0)
+            if "nn_weights" in best_params.keys():
+                best_params["nn_weights"] = np.array(
+                    result.best_batch["nn_weights"]
+                ).mean(0)
             np.save(
                 os.path.join(save_path, "best_state.npy"),
                 best_params,
@@ -513,9 +521,10 @@ def summarise_fn(
         # model_params from the final epoch of training,
         # independent of validation loss
         final_params = {key: result.model.get(key) for key in params_to_save}
-        final_params["nn_weights"] = np.array(
-            result.history["nn_weights"]  # all batches of final epoch
-        )[-n_batch:].mean(0)
+        if "nn_weights" in result.state.params.keys():
+            final_params["nn_weights"] = np.array(
+                result.history["nn_weights"]  # all batches of final epoch
+            )[-n_batch:].mean(0)
         np.save(
             os.path.join(save_path, "final_state.npy"),
             final_params,
@@ -529,9 +538,10 @@ def summarise_fn(
             # of that epoch (since nn_weights is a batched parameter,
             # best_state only contains its value at the final batch)
             best_params = result.best_state.params
-            best_params["nn_weights"] = np.array(
-                result.best_batch["nn_weights"]
-            ).mean(0)
+            if "nn_weights" in best_params.keys():
+                best_params["nn_weights"] = np.array(
+                    result.best_batch["nn_weights"]
+                ).mean(0)
             np.save(
                 os.path.join(amigo_files_path, "scratch_best_state.npy"),
                 best_params,
@@ -545,9 +555,10 @@ def summarise_fn(
         # model_params from the final epoch of training,
         # independent of validation loss
         final_params = {key: result.model.get(key) for key in params_to_save}
-        final_params["nn_weights"] = np.array(
-            result.history["nn_weights"]  # all batches of final epoch
-        )[-n_batch:].mean(0)
+        if "nn_weights" in result.state.params.keys():
+            final_params["nn_weights"] = np.array(
+                result.history["nn_weights"]  # all batches of final epoch
+            )[-n_batch:].mean(0)
         np.save(
             os.path.join(amigo_files_path, "scratch_final_state.npy"),
             final_params,
