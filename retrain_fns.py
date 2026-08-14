@@ -151,8 +151,8 @@ class BinaryFit(PointFit):
         # I believe it's negative cos for x co-ordinate because
         # of the YAxis Flip in the optical model. 
         # TODO Check this
-        d = separation * np.array([-np.cos(phi), np.sin(phi)])  # in radians
-        # d = separation * np.array([np.cos(phi), np.sin(phi)])  # in radians
+        # d = separation * np.array([-np.cos(phi), np.sin(phi)])  # in radians
+        d = separation * np.array([np.cos(phi), np.sin(phi)])  # in radians
 
         posA = mean_pos - d / 2  # brighter source
         posB = mean_pos + d / 2  # dimmer source
@@ -205,6 +205,27 @@ def ff_reg(model, exposure, ff_std=0.035):
 def nl_reg(model, exposure, nl_std=0.025):
     nl_norm = model.non_linearity - model.non_linearity.mean()
     return np.mean((nl_norm / nl_std) ** 2)
+
+
+def sep_reg(model, exposure, prior=0.1259, scale=0.01):
+    """
+    Prior on the binary separation of EZ Aquarii AC-B on Nov 11th 2025.
+    """
+    if exposure.star != "V-EZ-Aqr":
+        return np.array(0)
+    sep = model.separations[exposure.get_key("separations")]
+    return -jax.scipy.stats.norm.logpdf(sep, loc=prior, scale=scale)
+
+
+def pa_reg(model, exposure, prior=66.31, scale=6.6):
+    """
+    Prior on the binary position angle of EZ Aquarii AC-B on Nov 11th 2025.
+    """
+    if exposure.star != "V-EZ-Aqr":
+        return np.array(0)
+    pa = model.pas[exposure.get_key("pas")]
+    return -jax.scipy.stats.norm.logpdf(pa, loc=prior, scale=scale)
+
 
 
 def loss_fn(model, exposure, args={}):
