@@ -459,6 +459,7 @@ def summarise_fn(
     calbin_exposures=[],
     badpix=None,
     n_batch=None,
+    n_epoch=None,
     optimisers={},
     amigo_files_path="",
     ):
@@ -591,12 +592,14 @@ def summarise_fn(
     
     ################## PLOTTING LOSSES ###################
 
-    start, stop = 50, -1
+    stop = -1
+    if stop < 0:
+        stop = n_epoch + stop
+        start = int(0.2 * stop)
+    else:
+        start = 10
     
     if val_flag:
-        #
-        # epochs = cal.shape[-1]
-        # start, stop = 500, -1
         
         if start >= cal.shape[-1]:
             start = 1
