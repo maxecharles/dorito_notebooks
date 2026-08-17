@@ -608,8 +608,6 @@ def summarise_fn(
             stop = cal.shape[-1] + stop
         xs = np.arange(start, stop)
         
-        # print(np.array(cal).mean(0)[xs].shape)
-        
         plt.figure(figsize=(18, 4))
         ax = plt.subplot(1, 3, 1)
         plt.plot(xs, np.array(cal).mean(0)[xs])
@@ -653,6 +651,8 @@ def summarise_fn(
         plt.show()
     
     else:
+        losses = list(result.losses.values())[0]
+        start = int(0.2 * len(losses))
         amigo.plotting.plot_losses(list(result.losses.values())[0], start=start, save_path=save_path)
         
 
