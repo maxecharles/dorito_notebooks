@@ -459,7 +459,6 @@ def summarise_fn(
     calbin_exposures=[],
     badpix=None,
     n_batch=None,
-    n_epoch=None,
     optimisers={},
     amigo_files_path="",
     ):
@@ -592,12 +591,12 @@ def summarise_fn(
     
     ################## PLOTTING LOSSES ###################
 
+    losses = list(result.losses.values())[0]
+    n_epoch = len(losses)
+    start = int(0.2 * n_epoch)
     stop = -1
     if stop < 0:
         stop = n_epoch + stop
-        start = int(0.2 * stop)
-    else:
-        start = 10
     
     if val_flag:
         
@@ -651,9 +650,7 @@ def summarise_fn(
         plt.show()
     
     else:
-        losses = list(result.losses.values())[0]
-        start = int(0.2 * len(losses))
-        amigo.plotting.plot_losses(list(result.losses.values())[0], start=start, save_path=save_path)
+        amigo.plotting.plot_losses(losses, start=start, save_path=save_path)
         
 
     ################### PLOTTING HISTORY AND SUMMARISE FIT ###################
