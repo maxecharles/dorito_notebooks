@@ -184,14 +184,14 @@ class BinaryFit(PointFit):
 
         illuminance = dl.PSF(np.array(illuminances).sum(axis=0), psf.pixel_scale)
 
-        ramp = self.model_ramp(illuminance, model)
-        ramp = self.model_read(ramp, model)
+        return illuminance
 
-        return ramp
 
     def simulate(self, model, return_slopes: bool = True):
         model = self.nuke_pixel_grads(model)
-        ramp = self.model_interferogram(model)
+        illuminance = self.model_interferogram(model)
+        ramp = self.model_ramp(illuminance, model)
+        ramp = self.model_read(ramp, model)
         if return_slopes:
             return ramp.set("data", np.diff(ramp.data, axis=0))
         return ramp
@@ -593,7 +593,7 @@ def summarise_fn(
 
     losses = list(result.losses.values())[0]
     n_epoch = len(losses)
-    start = int(0.2 * n_epoch)
+    start = int(0.1 * n_epoch)
     stop = -1
     if stop < 0:
         stop = n_epoch + stop
@@ -844,7 +844,7 @@ def summarise_fn(
     
     for typ, dic in zip(exp_types, exp_dicts):
         for idx, (filt, _) in enumerate(dic.items()):
-            n = 2
+            n = 4
             k = 2 * n + 1
         
             for exp in dic[filt]:
@@ -858,7 +858,8 @@ def summarise_fn(
         
                 ######### plotting #########
                 max_loc = np.argwhere(peak_pix)[0][::-1]
-                square = mpl.patches.Rectangle(max_loc - np.array([2.5, 2.5]), 5, 5, color="r", fill=False)
+                square = mpl.patches.Rectangle(max_loc - np.array([k/2, k/2]), k, k, color="r", fill=False)
+
         
                 fig, ax = plt.subplots(figsize=(3, 2))
                 c = ax.imshow(im, "cividis", norm=mpl.colors.PowerNorm(0.5))
