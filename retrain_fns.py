@@ -1,6 +1,7 @@
 import numpy as onp
 from jax import numpy as np, random as jr, tree as jtu
-from dorito.stats import apply_regularisers
+import jax
+# from dorito.stats import apply_regularisers
 import dLux as dl
 from dLux import utils as dlu
 from amigo.model_fits import ModelFit, PointFit
@@ -197,17 +198,17 @@ class BinaryFit(PointFit):
         return ramp
 
 
-def ff_reg(model, exposure, ff_std=0.035):
+def ff_reg(model, exposure, args={}, ff_std=0.035):
     ff_norm = model.FF - 1
     return np.mean((ff_norm / ff_std) ** 2)
 
 
-def nl_reg(model, exposure, nl_std=0.025):
+def nl_reg(model, exposure, args={}, nl_std=0.025):
     nl_norm = model.non_linearity - model.non_linearity.mean()
     return np.mean((nl_norm / nl_std) ** 2)
 
 
-def sep_reg(model, exposure, prior=0.1259, scale=0.01):
+def sep_reg(model, exposure, args={}, prior=0.1259, scale=0.01):
     """
     Prior on the binary separation of EZ Aquarii AC-B on Nov 11th 2025.
     """
@@ -217,7 +218,7 @@ def sep_reg(model, exposure, prior=0.1259, scale=0.01):
     return -jax.scipy.stats.norm.logpdf(sep, loc=prior, scale=scale)
 
 
-def pa_reg(model, exposure, prior=66.31, scale=6.6):
+def pa_reg(model, exposure, args={}, prior=66.31, scale=6.6):
     """
     Prior on the binary position angle of EZ Aquarii AC-B on Nov 11th 2025.
     """
@@ -227,14 +228,70 @@ def pa_reg(model, exposure, prior=66.31, scale=6.6):
     return -jax.scipy.stats.norm.logpdf(pa, loc=prior, scale=scale)
 
 
+def linear_penalty(y):
+    """
+    Mean squared residual from the best-fit line through y,
+    assuming equispaced samples (x = 0, 1, ..., n-1).
+    0 = perfectly linear (any slope, including flat).
+    """
+    n = y.shape[0]  # number of timesteps
+    x = np.arange(n)
+
+    # range normalisation
+    y = (y - np.min(y)) / (np.max(y) - np.min(y)) 
+
+    x_centered = x - (n - 1) / 2.0  # can just use midpoint for x mean
+    y_centered = y - np.mean(y)
+
+    Sxy = np.sum(x_centered * y_centered)
+    Sxx = np.sum(x_centered ** 2)
+    Syy = np.sum(y_centered ** 2)
+
+    ss_res = Syy - (Sxy ** 2) / Sxx
+    return ss_res / n
+
+
+def linear_reg(model, exposure, args, return_im=False):
+
+    # getting slopes out of args
+    slopes = args["slopes"]
+    slope_vec = slopes.reshape(slopes.shape[0], -1)
+
+    # calculating linear penalty per pixel
+    lin_pen = jax.vmap(linear_penalty, in_axes=1)(slope_vec)
+
+    if return_im:
+        return lin_pen.reshape(slopes.shape[-2], slopes.shape[-1])
+    return np.mean(lin_pen)
+
+
+def apply_regularisers(model, exposure, args):
+    """Apply registered regularisers stored in ``args['reg_dict']``.
+
+    The expected format of ``args['reg_dict']`` is a mapping to pairs
+    ``(coeff, fun)`` where ``fun(model, exposure)`` returns a scalar regulariser
+    value.
+    """
+
+    if "reg_dict" not in args.keys():
+        return 0.0
+
+    # evaluating the regularisation term with each for each regulariser
+    priors = [coeff * fun(model, exposure, args=args) for coeff, fun in args["reg_dict"].values()]
+
+    # summing the different regularisers
+    return np.array(priors).sum()
+
 
 def loss_fn(model, exposure, args={}):
 
     # calculating likelihood
-    likelihood = -np.nanmean(exposure.mv_zscore(model))
+    z_vec, slopes = exposure.mv_zscore(model, return_slopes=True)
+    likelihood = -np.nanmean(z_vec)
 
     # applying regularisers to calculate prior
-    prior = apply_regularisers(model, exposure, args)
+    reg_args = {**args, "slopes": slopes}
+    prior = apply_regularisers(model, exposure, reg_args)
 
     # summing to posterior
     posterior = likelihood + prior
@@ -263,8 +320,8 @@ def cosine_warmup(t, t0, n_max):
     return half_cos
 
 
-def temp_decay(T0, k, t):
-    return T0 * np.exp(-k * t)
+def temp_decay(t, T0, k, TF=0):
+    return (T0 - TF) * np.exp(-k * t) + TF
 
 
 def get_warmup(args):
@@ -272,7 +329,7 @@ def get_warmup(args):
 
 
 def get_temperature(args):
-    return temp_decay(args["T0"], args["k"], args["t"])
+    return temp_decay(t=args["t"], T0=args["T0"], k=args["k"], TF=args["TF"])
 
 
 def grads_fn(model, grads, args):
@@ -855,18 +912,24 @@ def summarise_fn(
                 im = slopes.sum(0)
                 peak_pix = im == np.nanmax(im)
                 peak_map = convert_adjacent_to_true(peak_pix, corners=True, n=n)
+
+                slope_vec = slopes.reshape(slopes.shape[0], -1)    
+                linpen = jax.vmap(linear_penalty, in_axes=1)(slope_vec).reshape(slopes.shape[-2], slopes.shape[-1])
         
                 ######### plotting #########
                 max_loc = np.argwhere(peak_pix)[0][::-1]
-                square = mpl.patches.Rectangle(max_loc - np.array([k/2, k/2]), k, k, color="r", fill=False)
-
-        
-                fig, ax = plt.subplots(figsize=(3, 2))
-                c = ax.imshow(im, "cividis", norm=mpl.colors.PowerNorm(0.5))
-                ax.add_patch(square)
-                ax.set(title=f"Cropping: {filt}")
-                ax.axis("off")
-                fig.colorbar(c, ax=ax, label="Counts")
+                
+                fig, ax = plt.subplots(1, 2, figsize=(6, 2))
+                c = ax[0].imshow(im, "cividis", norm=mpl.colors.PowerNorm(0.5))
+                ax[0].set(title=f"Cropping: {filt}")
+                fig.colorbar(c, ax=ax[0], label="Counts")
+                ax[1].set(title=f"Linear Penalty: {filt}")
+                c = ax[1].imshow(linpen, "plasma", norm=mpl.colors.PowerNorm(.5))
+                fig.colorbar(c, ax=ax[1])
+                for i, color in zip([0, 1], ["r", "g"]):
+                    square = mpl.patches.Rectangle(max_loc - np.array([k/2, k/2]), k, k, color=color, fill=False)
+                    ax[i].axis("off")
+                    ax[i].add_patch(square)
                 if save_flag:
                     plt.savefig(os.path.join(this_save_path, f"{typ}_crop_{filt}.png"), dpi=300)
                     plt.close()
