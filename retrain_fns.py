@@ -228,7 +228,7 @@ def pa_reg(model, exposure, args={}, prior=66.31, scale=6.6):
     return -jax.scipy.stats.norm.logpdf(pa, loc=prior, scale=scale)
 
 
-def linear_penalty(y):
+def linear_penalty(y, eps=1e-8):
     """
     Mean squared residual from the best-fit line through y,
     assuming equispaced samples (x = 0, 1, ..., n-1).
@@ -237,8 +237,8 @@ def linear_penalty(y):
     n = y.shape[0]  # number of timesteps
     x = np.arange(n)
 
-    # range normalisation
-    y = (y - np.min(y)) / (np.max(y) - np.min(y)) 
+    # normalising by mean instead of range to avoid div by 0
+    y = (y - np.mean(y)) / (np.mean(y) + eps)
 
     x_centered = x - (n - 1) / 2.0  # can just use midpoint for x mean
     y_centered = y - np.mean(y)
