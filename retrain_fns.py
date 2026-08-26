@@ -237,8 +237,8 @@ def linear_penalty(y, eps=1e-8):
     n = y.shape[0]  # number of timesteps
     x = np.arange(n)
 
-    # normalising by mean instead of range to avoid div by 0
-    y = (y - np.mean(y)) / (np.mean(y) + eps)
+    y = (y - np.min(y)) / (np.max(y) - np.min(y) + eps)  # for range offset
+    # y = (y - np.mean(y)) / (np.mean(y) + eps)  # for mean offset
 
     x_centered = x - (n - 1) / 2.0  # can just use midpoint for x mean
     y_centered = y - np.mean(y)
