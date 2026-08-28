@@ -1,5 +1,5 @@
 import numpy as onp
-from jax import numpy as np, random as jr, tree as jtu
+from jax import numpy as np, random as jr, tree as jtu, lax
 import jax
 # from dorito.stats import apply_regularisers
 import dLux as dl
@@ -84,8 +84,58 @@ class DarkFit(ModelFit):
             return ramp.set("data", np.diff(ramp.data, axis=0))
         return ramp
 
+
+class _PointFit(PointFit):
+    pass
+#     def get_key(self, param):
+#         if param in ["primary_beams", "distortions"]:
+#             return self.POS
+#         return super().get_key(param)
+
+    # def map_param(self, param):
+    #     if param in ["primary_beams", "distortions"]:
+    #         return f"{param}.{self.get_key(param)}"
+    #     return super().map_param(param)
+
+    # def initialise_params(self, optics, vis_model=None, one_on_fs_order=1):
+    #     params = super().initialise_params(optics, vis_model=None, one_on_fs_order=1)
+    #     params["primary_beams"] = (self.get_key("primary_beams"), np.zeros((7, 2, 9)))
+    #     params["distortions"] = (self.get_key("distortions"), np.zeros((2, 9)))
+    #     return params
+
+    # def update_optics(self, model):
+    #     optics = model.optics
+    #     if "aberrations" in model.params.keys():
+    #         coefficients = model.aberrations[self.get_key("aberrations")]
+
+    #         # Nuke the piston gradient to prevent degeneracy
+    #         fixed_piston = lax.stop_gradient(coefficients[0, 0])
+    #         coefficients = coefficients.at[0, 0].set(fixed_piston)
+
+    #         # Stop gradient for science targets
+    #         if not self.calibrator:
+    #             coefficients = lax.stop_gradient(coefficients)
+    #         optics = optics.set("pupil_mask.abb_coeffs", coefficients)
+
+    #     if "primary_beam" in model.params.keys():
+    #         primary_beam = model.params["primary_beam"][self.get_key("primary_beam")]
+    #         optics = optics.set("pupil_mask.primary_beam", primary_beam)
+
+    #     if "distortion" in model.params.keys():
+    #         distortion = model.params["distortion"][self.get_key("distortion")]
+    #         optics = optics.set("pupil_mask.distortion", distortion)
+
+    #     if hasattr(model, "reflectivity"):
+    #         coefficients = model.reflectivity[self.get_key("reflectivity")]
+    #         optics = optics.set("pupil_mask.amp_coeffs", coefficients)
+
+    #     # Set the defocus
+    #     optics = optics.set("defocus", model.defocus[self.get_key("defocus")])
+
+    #     return optics
         
-class BinaryFit(PointFit):
+        
+class BinaryFit(_PointFit):
 
     sub_exps: dict
     unique_params: list
