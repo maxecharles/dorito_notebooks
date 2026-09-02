@@ -554,10 +554,10 @@ def summarise_fn(
     result,
     save_path,
     val_flag=False,
+    cal_flag=True,
     binary_flag=False,
     save_flag=False,
     flat_flag=False,
-    flat_only=False,
     static_optics=False,
     cal_exposures=[],
     val_exposures=[],
@@ -775,7 +775,7 @@ def summarise_fn(
     for exp_type, exps in zip(exp_types, exposures_lists):
         print(5*"\n")
         print(exp_type)
-        if flat_only and exp_type != "flat":
+        if not (cal_flag or binary_flag) and exp_type != "flat":
             continue
         if save_path is not None:
             this_save_path = os.path.join(save_path, exp_type)
