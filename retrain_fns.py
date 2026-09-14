@@ -716,8 +716,9 @@ def summarise_fn(
         
         plt.figure(figsize=(18, 4))
         ax = plt.subplot(1, 3, 1)
-        plt.plot(xs, np.array(cal).mean(0)[xs])
-        ax.set(title="Calibrators", xlabel="Epochs", ylabel="Loss")
+        if cal_flag or binary_flag:
+            plt.plot(xs, np.array(cal).mean(0)[xs])
+            ax.set(title="Calibrators", xlabel="Epochs", ylabel="Loss")
         
         ax = plt.subplot(1, 3, 2)
         ax.set(title="Validators", xlabel="Epochs", ylabel="Loss")
@@ -763,8 +764,11 @@ def summarise_fn(
     ################### PLOTTING HISTORY AND SUMMARISE FIT ###################
     amigo.plotting.plot(result.history, save_path=save_path)
     
-    exposures_lists = [cal_exposures]
-    exp_types = ["cal"]
+    exposures_lists = []
+    exp_types = []
+    if cal_flag or binary_flag:
+        exp_types += ["cal"]
+        exposures_lists += [cal_exposures]
     if val_flag:
         exp_types += ["val"]
         exposures_lists += [val_exposures]
@@ -775,8 +779,8 @@ def summarise_fn(
     for exp_type, exps in zip(exp_types, exposures_lists):
         print(5*"\n")
         print(exp_type)
-        if not (cal_flag or binary_flag) and exp_type != "flat":
-            continue
+        # if not (cal_flag or binary_flag) and exp_type != "flat":
+        #     continue
         if save_path is not None:
             this_save_path = os.path.join(save_path, exp_type)
             os.mkdir(this_save_path)
@@ -787,8 +791,6 @@ def summarise_fn(
             amigo.plotting.summarise_fit(result.model, exp, save_path=this_save_path)
 
     ################### PIXEL SENSITIVITY AND NON-LINEARITY ###################
-
-    print(badpix)
     
     badpix_bool = badpix.astype(bool)
     
