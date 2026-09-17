@@ -38,28 +38,16 @@ class DarkFit(ModelFit):
 
     def initialise_params(self, optics, vis_model=None, one_on_fs_order=1):
         params = {}
-
-        im = np.where(self.badpix, np.nan, self.slopes[0])
-        # psf = np.where(np.isnan(im), 0.0, im)
-
-        # dark current
-        params["dark_A"] = (
-            self.get_key("dark_A"),
-            np.array(0.443),
-        )
-
-        # One on fs
-        if self.fit_one_on_fs:
-            params["one_on_fs"] = (
-                self.get_key("one_on_fs"),
-                np.zeros((self.ngroups, 80, one_on_fs_order + 1)),
-            )
-
         return params
 
     @property
     def key(self):
         return "_".join(["dark", str(self.ngroups)])
+
+    # def get_key(self, param):
+    #     if param in ["dark_A"]:
+    #         return self.key
+    #     return super().get_key(param)
 
     def model_illuminance(self, model):
         """
@@ -75,6 +63,30 @@ class DarkFit(ModelFit):
         # Make the object and return
         return dl.PSF(illuminance, dlu.arcsec2rad(pixel_scale))
 
+    def model_ramp(self, illuminance, model):
+        # Get the charge (bias)
+        illum_small = dlu.downsample(illuminance.data, 3, mean=False)
+
+        # NOTE: This bias estimate is inadequate becuase it doesnt correctly account
+        # for the non-linear component of the gain. This ultimately should be properly
+        # calibrated, WITH the gain term using the ramp rather than slope data.
+        #
+        # TODO: Use quadratic formula to get correct non-linear inversion
+        true_bias = model.read.gain * self.ramp[0]
+        bias = true_bias - (illum_small / self.ngroups)
+
+        # bias = self.ramp[0] - (illum_small / self.ngroups)
+        # bias = model.read.gain * bias
+
+        # Paste badpixels with median
+        bias = np.where(self.badpix, np.median(bias), bias)
+
+        # Evolve the illuminance
+        # Don't need to bother with modelling charge bleeding here
+        no_bleed = model.ramp_model.set("bleed", False)
+        ramp = no_bleed.evolve_illuminance(illuminance.data, bias, self.ngroups)
+        return Ramp(ramp, illuminance.pixel_scale)
+
     def simulate(self, model, return_slopes=False):
         illuminance = self.model_illuminance(model)
         ramp = self.model_ramp(illuminance, model)
@@ -83,7 +95,6 @@ class DarkFit(ModelFit):
         if return_slopes:
             return ramp.set("data", np.diff(ramp.data, axis=0))
         return ramp
-
 
 class _PointFit(PointFit):
     pass
@@ -838,59 +849,62 @@ def summarise_fn(
 
 
     ################### WAVEFRONT ###################
-    try:
+
+    optics = result.model.optics
+    pupil_mask = result.model.optics.pupil_mask
     
-        optics = result.model.optics
-        pupil_mask = result.model.optics.pupil_mask
+    rms = lambda x: np.sqrt(np.nanmean(np.square(x)))
         
-        rms = lambda x: np.sqrt(np.nanmean(np.square(x)))
+    if "aberrations" in optimisers.keys():
+        for key, coeffs in result.state.aberrations.items():
+    
+            # trying to get the program and filter strings
+            key_split = key.split("_")
+            if len(key_split) > 2:
+                filt, prog = key_split[0], key_split[1]
+            elif len(key_split) == 2:
+                prog, filt = key_split
+    
+            # plotting
+            fig, ax = plt.subplots(1, 2, figsize=(10, 3.5))
+    
+            full_abb = pupil_mask.set("abb_coeffs", coeffs).calc_aberrations()
+            flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
+            
+            if static_optics:
+                mask = optics.transmission
+            else:
+                mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
         
-        if "aberrations" in optimisers.keys():
-            for prog in ["4481", "8330", "1093", "1843", "1242"]:
-                print(prog)
-                cal_aberrations = {key: val for key, val in result.state.aberrations.items() if prog in key}  # NOTE USE ALL 
-                
-                fig, axes = plt.subplots(2, 3, figsize=(12, 6))
-                for i, key in enumerate(cal_aberrations):
-                
-                    coeffs = result.model.aberrations[key]
-                    full_abb = pupil_mask.set("abb_coeffs", coeffs).calc_aberrations()
-                    flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
-                    
-                    if static_optics:
-                        mask = optics.transmission
-                    else:
-                        mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
-                
-                    full_abb = np.where(mask < 1.0, np.nan, 1e9 * full_abb)
-                    flat_abb = np.where(mask < 1.0, np.nan, 1e9 * flat_abb)
-                
-                    full_abb -= np.nanmean(full_abb)
-                    flat_abb -= np.nanmean(flat_abb)
-                
-                    ax_top = axes[0, i]
-                    ax_bot = axes[1, i]
-                
-                    v = np.nanmax(np.abs(full_abb))
-                    ax_top.set_title(f"{key} — Full OPD (RMS: {rms(full_abb):.2f} nm)")
-                    im_top = ax_top.imshow(full_abb, cmap=seismic, vmin=-v, vmax=v)
-                    fig.colorbar(im_top, ax=ax_top, label="OPD (nm)")
-                
-                    v = np.nanmax(np.abs(flat_abb))
-                    ax_bot.set_title(f"{key} — FLAT OPD (RMS: {rms(flat_abb):.2f} nm)")
-                    im_bot = ax_bot.imshow(flat_abb, cmap=seismic, vmin=-v, vmax=v)
-                    fig.colorbar(im_bot, ax=ax_bot, label="OPD (nm)")
-                
-                fig.tight_layout()
-                if save_flag:
-                    plt.savefig(os.path.join(save_path, f"wavefront_{prog}.png"), dpi=300)
-                    plt.close()
+            full_abb = np.where(mask < 1.0, np.nan, 1e9 * full_abb)
+            flat_abb = np.where(mask < 1.0, np.nan, 1e9 * flat_abb)
+        
+            full_abb -= np.nanmean(full_abb)
+            flat_abb -= np.nanmean(flat_abb)
+        
+            ax[0].set_title(f"{key} — Full OPD (RMS: {rms(full_abb):.2f} nm)")
+            im_top = ax[0].imshow(full_abb, cmap=seismic, norm=mpl.colors.CenteredNorm())
+            fig.colorbar(im_top, ax=ax[0], label="OPD (nm)")
+        
+            ax[1].set_title(f"{key} — FLAT OPD (RMS: {rms(flat_abb):.2f} nm)")
+            im_bot = ax[1].imshow(flat_abb, cmap=seismic, norm=mpl.colors.CenteredNorm())
+            fig.colorbar(im_bot, ax=ax[1], label="OPD (nm)")
+    
+    
+            fig.tight_layout()
+            if save_flag:
+                if save_path is not None:
+                    this_save_path = os.path.join(save_path, "wavefronts/")
+                    if not os.path.exists(this_save_path):
+                        os.mkdir(this_save_path)
                 else:
-                    plt.show()
+                    this_save_path = None
                     
-    except Exception as e:
-        print(f"Plotting wavefront failed: {e}")
-        
+                plt.savefig(os.path.join(this_save_path, f"{prog}_{filt}_{key}.png"), dpi=300)
+                plt.close()
+            else:
+                plt.show()
+            
 
     
     ################### PUPIL AND BEAM DISTORTIONS ###################
