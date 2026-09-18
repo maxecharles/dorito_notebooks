@@ -1,100 +1,21 @@
 import numpy as onp
-from jax import numpy as np, random as jr, tree as jtu, lax
+from jax import numpy as np, random as jr, tree as jtu, lax, Array
 import jax
 # from dorito.stats import apply_regularisers
 import dLux as dl
 from dLux import utils as dlu
 from amigo.model_fits import ModelFit, PointFit
 from amigo.optical_models import AMIOptics
+from amigo.ramp_models import Ramp
 import pandas as pd
 import sys
 import amigo
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import os
+from importlib import resources
 
 
-class DarkFit(ModelFit):
-
-    def __init__(self, file, fit_one_on_fs=False, **kwargs):
-        file[0].header["IS_PSF"] = False
-
-        super().__init__(file, **kwargs)
-        self.star = "NIS_DARK"
-        self.observation = "DARK"
-        self.program = "DARK"
-        self.fit_one_on_fs = fit_one_on_fs
-        self.fit_reflectivity = False
-        self.fit_bias = False
-        self.validator = False
-
-    def print_summary(self):
-        print(
-            f"File {self.key}\n"
-            f"Star {self.star}\n"
-            f"nints {self.nints}\n"
-            f"ngroups {len(self.slopes)+1}\n"
-        )
-
-    def initialise_params(self, optics, vis_model=None, one_on_fs_order=1):
-        params = {}
-        return params
-
-    @property
-    def key(self):
-        return "_".join(["dark", str(self.ngroups)])
-
-    # def get_key(self, param):
-    #     if param in ["dark_A"]:
-    #         return self.key
-    #     return super().get_key(param)
-
-    def model_illuminance(self, model):
-        """
-        There is no illuminance! Haha!
-        """
-        # Get the pixel scale (arcseconds)
-        pixel_scale = model.optics.psf_pixel_scale / model.optics.oversample
-        npix = model.optics.psf_npixels * model.optics.oversample
-
-        # illuminance is just zeros
-        illuminance = np.zeros((npix, npix))
-
-        # Make the object and return
-        return dl.PSF(illuminance, dlu.arcsec2rad(pixel_scale))
-
-    def model_ramp(self, illuminance, model):
-        # Get the charge (bias)
-        illum_small = dlu.downsample(illuminance.data, 3, mean=False)
-
-        # NOTE: This bias estimate is inadequate becuase it doesnt correctly account
-        # for the non-linear component of the gain. This ultimately should be properly
-        # calibrated, WITH the gain term using the ramp rather than slope data.
-        #
-        # TODO: Use quadratic formula to get correct non-linear inversion
-        true_bias = model.read.gain * self.ramp[0]
-        bias = true_bias - (illum_small / self.ngroups)
-
-        # bias = self.ramp[0] - (illum_small / self.ngroups)
-        # bias = model.read.gain * bias
-
-        # Paste badpixels with median
-        bias = np.where(self.badpix, np.median(bias), bias)
-
-        # Evolve the illuminance
-        # Don't need to bother with modelling charge bleeding here
-        no_bleed = model.ramp_model.set("bleed", False)
-        ramp = no_bleed.evolve_illuminance(illuminance.data, bias, self.ngroups)
-        return Ramp(ramp, illuminance.pixel_scale)
-
-    def simulate(self, model, return_slopes=False):
-        illuminance = self.model_illuminance(model)
-        ramp = self.model_ramp(illuminance, model)
-        ramp = self.model_read(ramp, model)
-
-        if return_slopes:
-            return ramp.set("data", np.diff(ramp.data, axis=0))
-        return ramp
 
 class _PointFit(PointFit):
     pass
@@ -569,6 +490,7 @@ def summarise_fn(
     binary_flag=False,
     save_flag=False,
     flat_flag=False,
+    dark_flag=False,
     static_optics=False,
     cal_exposures=[],
     val_exposures=[],
@@ -844,10 +766,33 @@ def summarise_fn(
     
     fig.tight_layout()
     if save_flag:
-        plt.savefig(os.path.join(save_path, "pixels.png"), dpi=300)
+        plt.savefig(os.path.join(save_path, "flats.png"), dpi=300)
+    plt.show()
+    
+    
+    ##################### DARKS #####################
+    
+    fig, ax = plt.subplots(1, 2, figsize=(10, 3))
+    
+    dark_current = np.where(exp.badpix, np.nan, result.model.dark_current)
+    
+    im = ax[0].imshow(dark_current, inferno)
+    ax[0].set(title="Per Pixel Dark Current")
+    ax[0].axis("off")
+    fig.colorbar(im)
+    
+    ax[1].hist(dark_current.ravel(), bins=100)
+    ax[1].set(title="Histogram")
+    ax[1].axvline(np.nanmean(dark_current), label=f"mean={np.nanmean(dark_current):.3f}", color="red")
+    ax[1].axvline(np.nanmedian(dark_current), label=f"median={np.nanmedian(dark_current):.3f}", color="yellow")
+    ax[1].legend()
+    
+    fig.tight_layout()
+    if save_flag:
+        plt.savefig(os.path.join(save_path, "darks.png"), dpi=300)
     plt.show()
 
-
+    
     ################### WAVEFRONT ###################
 
     optics = result.model.optics
