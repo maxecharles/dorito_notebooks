@@ -1,183 +1,17 @@
 import numpy as onp
-from jax import numpy as np, random as jr, tree as jtu, lax, Array
+from jax import numpy as np, random as jr, tree as jtu
 import jax
 # from dorito.stats import apply_regularisers
 import dLux as dl
 from dLux import utils as dlu
-from amigo.model_fits import ModelFit, PointFit
+from amigo.model_fits import PointFit
 from amigo.optical_models import AMIOptics
-from amigo.ramp_models import Ramp
 import pandas as pd
 import sys
 import amigo
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import os
-from importlib import resources
-
-
-
-class _PointFit(PointFit):
-    pass
-#     def get_key(self, param):
-#         if param in ["primary_beams", "distortions"]:
-#             return self.POS
-#         return super().get_key(param)
-
-    # def map_param(self, param):
-    #     if param in ["primary_beams", "distortions"]:
-    #         return f"{param}.{self.get_key(param)}"
-    #     return super().map_param(param)
-
-    # def initialise_params(self, optics, vis_model=None, one_on_fs_order=1):
-    #     params = super().initialise_params(optics, vis_model=None, one_on_fs_order=1)
-    #     params["primary_beams"] = (self.get_key("primary_beams"), np.zeros((7, 2, 9)))
-    #     params["distortions"] = (self.get_key("distortions"), np.zeros((2, 9)))
-    #     return params
-
-    # def update_optics(self, model):
-    #     optics = model.optics
-    #     if "aberrations" in model.params.keys():
-    #         coefficients = model.aberrations[self.get_key("aberrations")]
-
-    #         # Nuke the piston gradient to prevent degeneracy
-    #         fixed_piston = lax.stop_gradient(coefficients[0, 0])
-    #         coefficients = coefficients.at[0, 0].set(fixed_piston)
-
-    #         # Stop gradient for science targets
-    #         if not self.calibrator:
-    #             coefficients = lax.stop_gradient(coefficients)
-    #         optics = optics.set("pupil_mask.abb_coeffs", coefficients)
-
-    #     if "primary_beam" in model.params.keys():
-    #         primary_beam = model.params["primary_beam"][self.get_key("primary_beam")]
-    #         optics = optics.set("pupil_mask.primary_beam", primary_beam)
-
-    #     if "distortion" in model.params.keys():
-    #         distortion = model.params["distortion"][self.get_key("distortion")]
-    #         optics = optics.set("pupil_mask.distortion", distortion)
-
-    #     if hasattr(model, "reflectivity"):
-    #         coefficients = model.reflectivity[self.get_key("reflectivity")]
-    #         optics = optics.set("pupil_mask.amp_coeffs", coefficients)
-
-    #     # Set the defocus
-    #     optics = optics.set("defocus", model.defocus[self.get_key("defocus")])
-
-    #     return optics
-        
-        
-class BinaryFit(_PointFit):
-
-    sub_exps: dict
-    unique_params: list
-
-    def __init__(self, file, unique_params=None, calibrator=True):
-
-        super().__init__(file)
-
-        # OVERIDE self.calbrator
-        self.calibrator = calibrator
-
-        self.sub_exps = {
-            "A": PointFit(file),
-            "B": PointFit(file),
-        }
-
-        if unique_params is None:
-            unique_params = [
-                "spectra",
-            ]
-        self.unique_params = unique_params
-
-    def initialise_params(self, optics, one_on_fs_order=1):
-        params = super().initialise_params(optics, one_on_fs_order)
-        params["pas"] = (self.get_key("pas"), np.array(0.0))  # degrees
-        params["separations"] = (self.get_key("separations"), np.array(0.1))
-        params["contrasts"] = (self.get_key("contrasts"), np.array(0.5))
-        for param, (key, value) in params.items():
-            if param in self.unique_params:
-                params[param] = key, np.array(2 * [value])  # one for each source
-
-        return params
-
-    def get_key(self, param):
-        if param in ["pas"]:
-            # return self.key
-            return self.star
-        if param in ["separations"]:
-            return self.star
-        if param in ["contrasts"]:
-            return "_".join([self.star, self.filter])
-        return super().get_key(param)
-
-    def map_param(self, param):
-        if param in ["pas", "separations", "contrasts"]:
-            return f"{param}.{self.get_key(param)}"
-        return super().map_param(param)
-
-    def model_interferogram(self, model):
-
-        mean_pos = model.positions[self.get_key("positions")]
-        total_flux = 10 ** model.fluxes[self.get_key("fluxes")]
-
-        pa = model.pas[self.get_key("pas")]  # in degrees, measured from N toward E
-        
-        separation = model.separations[self.get_key("separations")]
-        contrast = model.contrasts[self.get_key("contrasts")]
-
-        # Converting position angle from deg to radians
-        # and offsetting by JWST Parallactic Angle (ROLL_REF)
-        phi = dlu.deg2rad((90 + pa) - self.parang)      
-    
-        # separation vector d in radians
-        # I believe it's negative cos for x co-ordinate because
-        # of the YAxis Flip in the optical model. 
-        # TODO Check this
-        # d = separation * np.array([-np.cos(phi), np.sin(phi)])  # in radians
-        d = separation * np.array([np.cos(phi), np.sin(phi)])  # in radians
-
-        posA = mean_pos - d / 2  # brighter source
-        posB = mean_pos + d / 2  # dimmer source
-
-        logfluxA = np.log10(contrast * total_flux)
-        logfluxB = np.log10((1 - contrast) * total_flux)
-
-        modelA = model.set(self.map_param("positions"), posA).set(
-            self.map_param("fluxes"), logfluxA
-        )
-        modelB = model.set(self.map_param("positions"), posB).set(
-            self.map_param("fluxes"), logfluxB
-        )
-
-        # unpacking the unique parameters for each source
-        for param in self.unique_params:
-            pA, pB = model.get(self.map_param(param))
-            modelA = modelA.set(self.map_param(param), pA)
-            modelB = modelB.set(self.map_param(param), pB)
-
-        models = [modelA, modelB]
-
-        # TODO Vectorise this?
-        illuminances = []
-        for m in [modelA, modelB]:
-            psf = self.model_psf(m)
-            illuminance = self.model_illuminance(psf, m)
-            illuminances.append(illuminance.data)
-
-        illuminance = dl.PSF(np.array(illuminances).sum(axis=0), psf.pixel_scale)
-
-        return illuminance
-
-
-    def simulate(self, model, return_slopes: bool = True):
-        model = self.nuke_pixel_grads(model)
-        illuminance = self.model_interferogram(model)
-        ramp = self.model_ramp(illuminance, model)
-        ramp = self.model_read(ramp, model)
-        if return_slopes:
-            return ramp.set("data", np.diff(ramp.data, axis=0))
-        return ramp
 
 
 def ff_reg(model, exposure, args={}, ff_std=0.035):
@@ -479,9 +313,27 @@ def get_cmap(cmap_name: str):
     cmap = mpl.colormaps[cmap_name]
     cmap.set_bad("k", 0.5)
     return cmap
+
     
+def get_transmission_mask(optics, params, static_optics=False):
+    """
+    Build the pupil transmission mask for a given saved-params dict,
+    using that state's own distortion/primary_beam rather than
+    whatever's currently sitting on result.model.optics.
+    """
+    if static_optics:
+        return optics.transmission
 
+    pupil_mask = optics.pupil_mask
+    if "distortion" in params:
+        pupil_mask = pupil_mask.set("distortion", params["distortion"])
+    if "primary_beam" in params:
+        pupil_mask = pupil_mask.set("primary_beam", params["primary_beam"])
+    optics = optics.set("pupil_mask", pupil_mask)
 
+    return optics.calc_mask(optics.wf_npixels, optics.diameter)
+
+    
 def summarise_fn(
     result,
     save_path,
@@ -506,6 +358,8 @@ def summarise_fn(
     inferno_r = get_cmap("inferno_r")
     inferno = get_cmap("inferno")
     seismic = get_cmap("seismic")
+
+    badpix_bool = badpix.astype(bool)
 
     params_to_save = [
         "fluxes",
@@ -556,77 +410,44 @@ def summarise_fn(
         )
         print(f"Best: {idx}")
         print(looper_fn(result.losses, test_aux))
-    
-    if save_flag:
-        try:
-            # --- best_state.npy ---
-            # model_params from the epoch with best validation loss,
-            # with nn_weights replaced by the mean across all batches
-            # of that epoch (since nn_weights is a batched parameter,
-            # best_state only contains its value at the final batch)
-            best_params = result.best_state.params
-            if "nn_weights" in best_params.keys():
-                best_params["nn_weights"] = np.array(
-                    result.best_batch["nn_weights"]
-                ).mean(0)
-            np.save(
-                os.path.join(save_path, "best_state.npy"),
-                best_params,
-                allow_pickle=True,
-            )
-    
-        except Exception as e:
-            print(f"Saving best state failed: {e}")
-        
-        # --- final_state.npy ---
-        # model_params from the final epoch of training,
-        # independent of validation loss
-        final_params = {key: result.model.get(key) for key in params_to_save}
-        if "nn_weights" in result.state.params.keys():
-            final_params["nn_weights"] = np.array(
-                result.history["nn_weights"]  # all batches of final epoch
-            )[-n_batch:].mean(0)
+
+    optics = result.model.optics  # base optics; pupil_mask gets overridden per-state below
+
+    # best_state/final_state save to different locations/filenames depending on save_flag,
+    # but are otherwise identical, so this is shared rather than duplicated per-branch.
+    out_dir = save_path if save_flag else amigo_files_path
+    prefix = "" if save_flag else "scratch_"
+
+    try:
+        best_params = result.best_state.params
+        if "nn_weights" in best_params.keys():
+            best_params["nn_weights"] = np.array(
+                result.best_batch["nn_weights"]
+            ).mean(0)
+        best_params["transmission"] = get_transmission_mask(
+            optics, best_params, static_optics=static_optics
+        )
         np.save(
-            os.path.join(save_path, "final_state.npy"),
-            final_params,
+            os.path.join(out_dir, f"{prefix}best_state.npy"),
+            best_params,
             allow_pickle=True,
         )
-    else:
-        try:
-            # --- best_state.npy ---
-            # model_params from the epoch with best validation loss,
-            # with nn_weights replaced by the mean across all batches
-            # of that epoch (since nn_weights is a batched parameter,
-            # best_state only contains its value at the final batch)
-            best_params = result.best_state.params
-            if "nn_weights" in best_params.keys():
-                best_params["nn_weights"] = np.array(
-                    result.best_batch["nn_weights"]
-                ).mean(0)
-            np.save(
-                os.path.join(amigo_files_path, "scratch_best_state.npy"),
-                best_params,
-                allow_pickle=True,
-            )
-    
-        except Exception as e:
-            print(f"Saving best state failed: {e}")
-        
-        # --- final_state.npy ---
-        # model_params from the final epoch of training,
-        # independent of validation loss
-        final_params = {key: result.model.get(key) for key in params_to_save}
-        if "nn_weights" in result.state.params.keys():
-            final_params["nn_weights"] = np.array(
-                result.history["nn_weights"]  # all batches of final epoch
-            )[-n_batch:].mean(0)
-        np.save(
-            os.path.join(amigo_files_path, "scratch_final_state.npy"),
-            final_params,
-            allow_pickle=True,
-        )
-            
-    
+    except Exception as e:
+        print(f"Saving best state failed: {e}")
+
+    final_params = {key: result.model.get(key) for key in params_to_save}
+    if "nn_weights" in result.state.params.keys():
+        final_params["nn_weights"] = np.array(
+            result.history["nn_weights"]  # all batches of final epoch
+        )[-n_batch:].mean(0)
+    final_params["transmission"] = get_transmission_mask(
+        optics, final_params, static_optics=static_optics
+    )
+    np.save(
+        os.path.join(out_dir, f"{prefix}final_state.npy"),
+        final_params,
+        allow_pickle=True,
+    )
 
     
     ################## PLOTTING LOSSES ###################
@@ -655,8 +476,7 @@ def summarise_fn(
         
         ax = plt.subplot(1, 3, 2)
         ax.set(title="Validators", xlabel="Epochs", ylabel="Loss")
-        if val_flag:
-            plt.plot(xs, np.array(val).mean(0)[xs])
+        plt.plot(xs, np.array(val).mean(0)[xs])
         
         ax = plt.subplot(1, 3, 3)
         ax.set(title="Flat", xlabel="Epochs", ylabel="Loss")
@@ -676,8 +496,7 @@ def summarise_fn(
         [plt.plot(xs, ys[xs]) for ys in cal]
         
         ax = plt.subplot(1, 3, 2)
-        if val_flag:
-            ax.set(title="Validators", xlabel="Epochs", ylabel="Loss")
+        ax.set(title="Validators", xlabel="Epochs", ylabel="Loss")
         [plt.plot(xs, ys[xs]) for ys in val]
         
         ax = plt.subplot(1, 3, 3)
@@ -725,8 +544,6 @@ def summarise_fn(
 
     ################### PIXEL SENSITIVITY AND NON-LINEARITY ###################
     
-    badpix_bool = badpix.astype(bool)
-    
     FF = result.model.FF.at[badpix_bool].set(np.nan)
     non_lin = result.model.non_linearity[0].at[badpix_bool].set(np.nan)
     
@@ -773,8 +590,12 @@ def summarise_fn(
     ##################### DARKS #####################
     
     fig, ax = plt.subplots(1, 2, figsize=(10, 3))
-    
-    dark_current = np.where(exp.badpix, np.nan, result.model.dark_current)
+
+    # NOTE: previously used the badpix of whichever exposure happened to be
+    # last in the "PLOTTING HISTORY" loop above; that loop can be empty
+    # (cal_flag/val_flag/flat_flag all False), so use the passed-in badpix
+    # explicitly instead of relying on the leftover loop variable.
+    dark_current = np.where(badpix_bool, np.nan, result.model.dark_current)
     
     im = ax[0].imshow(dark_current, inferno)
     ax[0].set(title="Per Pixel Dark Current")
@@ -795,8 +616,7 @@ def summarise_fn(
     
     ################### WAVEFRONT ###################
 
-    optics = result.model.optics
-    pupil_mask = result.model.optics.pupil_mask
+    pupil_mask = optics.pupil_mask
     
     rms = lambda x: np.sqrt(np.nanmean(np.square(x)))
         
@@ -855,10 +675,9 @@ def summarise_fn(
     ################### PUPIL AND BEAM DISTORTIONS ###################
 
     if not static_optics:
-        null_pupil_mask = result.model.optics.pupil_mask.multiply("primary_beam", 0.0).multiply("distortion", 0.0)
+        null_pupil_mask = pupil_mask.multiply("primary_beam", 0.0).multiply("distortion", 0.0)
         null_mask = null_pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
         
-        pupil_mask = result.model.optics.pupil_mask
         mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
         
     else:
@@ -866,7 +685,7 @@ def summarise_fn(
         null_pupil_mask = raw_optics.pupil_mask.multiply("primary_beam", 0.0).multiply("distortion", 0.0)
         null_mask = null_pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
 
-        mask = result.model.optics.transmission
+        mask = optics.transmission
         
     fig, ax = plt.subplots(figsize=(3, 2))
     
