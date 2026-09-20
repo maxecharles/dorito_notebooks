@@ -163,11 +163,11 @@ def grads_fn(model, grads, args):
     # Adds a temperature to the NN gradients
     values = grad_params["nn_weights"]
 
-    # Add the learning rate warm-up (we also warm up the temperature here)
-    values *= args["max_lr"] * get_warmup(args)
-
     rand_vals = get_temperature(args) * jr.normal(key, values.shape)
     values += rand_vals
+
+    # Add the learning rate warm-up (we also warm up the temperature here)
+    values *= args["max_lr"] * get_warmup(args)
 
     # Increment the t parameter
     args["t"] += 1.0 / args["n_batch"]
@@ -201,37 +201,38 @@ def looper_fn(loss_dict, aux_dict):
         if "val" in batch_key:
             val_losses[key] = value
 
+    # Only the last 1-2 values (per exposure) are ever printed, so avoid
+    # rebuilding a device array from the full, ever-growing history every
+    # epoch (that's O(epochs) work per call, O(epochs^2) over a full run).
+    # Plain host-side numpy is also the right tool here regardless, since
+    # this is pure bookkeeping for a printed string, not part of the
+    # differentiable model.
+    def last_and_diff(values):
+        last = onp.mean([v[-1] for v in values])
+        diff = last - onp.mean([v[-2] for v in values]) if len(next(iter(values))) > 1 else None
+        return last, diff
+
+    def append_str(print_str, label, values):
+        if len(values) == 0:
+            return print_str
+        last, diff = last_and_diff(values)
+        print_str += f"{label}{last:.2f}"
+        if diff is not None:
+            print_str += f" \u0394 {diff:.2f}"
+        return print_str
+
     print_str = ""
-    if len(cal_losses) > 0:
-        print_str += "Cal: "
-
-        losses = np.array(list(cal_losses.values())).mean(0)
-        print_str += f"{losses[-1]:.2f}"
-        if len(losses) > 1:
-            print_str += f" \u0394 {np.diff(losses)[-1]:.2f}"
-
-    if len(val_losses) > 0:
-        print_str += " | Val: "
-
-        losses = np.array(list(val_losses.values())).mean(0)
-        print_str += f"{losses[-1]:.2f}"
-        if len(losses) > 1:
-            print_str += f" \u0394 {np.diff(losses)[-1]:.2f}"
-
-    if len(flat_losses) > 0:
-        print_str += " | Flat: "
-        losses = np.array(list(flat_losses.values())).mean(0)
-        print_str += f"{losses[-1]:.2f}"
-        if len(losses) > 1:
-            print_str += f" \u0394 {np.diff(losses)[-1]:.2f}"
+    print_str = append_str(print_str, "Cal: ", cal_losses.values())
+    print_str = append_str(print_str, " | Val: ", val_losses.values())
+    print_str = append_str(print_str, " | Flat: ", flat_losses.values())
 
     # NOTE "l2_reg" is just all priors
     # TODO Edit Trainer class so this is not hardcoded
-    prior = np.array(jtu.leaves(aux_dict["l2_reg"]))
+    prior = onp.array(jtu.leaves(aux_dict["l2_reg"]))
     if len(prior) > 0:
         print_str += f" | Prior: {prior[-1]:.2f}"
         if len(prior) > 1:
-            print_str += f" \u0394 {np.diff(prior)[-1]:.2f}"
+            print_str += f" \u0394 {onp.diff(prior)[-1]:.2f}"
 
     return print_str
 
@@ -347,6 +348,7 @@ def summarise_fn(
     cal_exposures=[],
     val_exposures=[],
     flat_exposures=[],
+    dark_exposures=[],
     calpsf_exposures=[],
     calbin_exposures=[],
     badpix=None,
@@ -527,7 +529,10 @@ def summarise_fn(
     if flat_flag:
         exp_types += ["flat"]
         exposures_lists += [flat_exposures]
-        
+    if dark_flag:
+        exp_types += ["dark"]
+        exposures_lists += [dark_exposures]
+
     for exp_type, exps in zip(exp_types, exposures_lists):
         print(5*"\n")
         print(exp_type)
