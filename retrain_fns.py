@@ -106,8 +106,13 @@ def loss_fn(model, exposure, args={}):
     likelihood = -np.nanmean(z_vec)
 
     # applying regularisers to calculate prior
+    # NOTE: The regularisers read the model parameters directly (eg ff_reg, nl_reg), so
+    # they need the same gradient stopping that `simulate` applies to calibrators
+    reg_model = model
+    if exposure.calibrator:
+        reg_model = exposure.nuke_dark_grads(exposure.nuke_pixel_grads(model))
     reg_args = {**args, "slopes": slopes}
-    prior = apply_regularisers(model, exposure, reg_args)
+    prior = apply_regularisers(reg_model, exposure, reg_args)
 
     # summing to posterior
     posterior = likelihood + prior
