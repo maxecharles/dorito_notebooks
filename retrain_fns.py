@@ -189,6 +189,21 @@ def aux_fn(batch_key, aux_dict, aux):
     return aux_dict
 
 
+def batch_looper_fn(looper, loss_dict):
+    """tqdm description for the plain Trainer: mean loss plus cal/flat splits."""
+    last = {k: float(onp.asarray(v[-1])) for k, v in loss_dict.items() if len(v) > 0}
+    groups = {"Cal": [], "Flat": []}
+    for key, value in last.items():
+        for label in groups:
+            if label.lower() in key:
+                groups[label].append(value)
+    desc = f"Loss: {onp.mean(list(last.values())):.2f}"
+    for label, values in groups.items():
+        if len(values) > 0:
+            desc += f" | {label}: {onp.mean(values):.2f}"
+    looper.set_description(desc)
+
+
 def looper_fn(loss_dict, aux_dict):
 
     cal_losses, flat_losses, val_losses = {}, {}, {}
@@ -512,7 +527,30 @@ def summarise_fn(
         plt.show()
     
     else:
-        amigo.plotting.plot_losses(losses, start=start, save_path=save_path)
+        # Plot every batch plus the mean (what tqdm reports), not just the first batch
+        all_losses = onp.array([onp.asarray(v) for v in result.losses.values()])
+        n_epoch = all_losses.shape[-1]
+        start = start if start < n_epoch else 0
+        xs = onp.arange(start, n_epoch)
+
+        plt.figure(figsize=(16, 5))
+        ax = plt.subplot(1, 2, 1)
+        ax.set(title="Mean loss (all batches)", xlabel="Epochs", ylabel="Loss")
+        plt.plot(all_losses.mean(0))
+        ax = plt.subplot(1, 2, 2)
+        ax.set(title=f"Per-batch loss (from epoch {start})", xlabel="Epochs", ylabel="Loss")
+        colours = plt.get_cmap("tab20")(onp.linspace(0, 1, 20))
+        for i, (key, ys) in enumerate(zip(result.losses.keys(), all_losses)):
+            plt.plot(xs, ys[xs], label=str(key), color=colours[i % 20], ls="-" if i < 20 else "--")
+        ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=7)
+        plt.tight_layout()
+        if save_path is not None:
+            plt.savefig(os.path.join(save_path, "losses.png"))
+            onp.savez(
+                os.path.join(save_path, "losses.npz"),
+                **{str(k): onp.asarray(v) for k, v in result.losses.items()},
+            )
+        plt.close()
         
 
     ################### PLOTTING HISTORY AND SUMMARISE FIT ###################
