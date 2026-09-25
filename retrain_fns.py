@@ -354,7 +354,26 @@ def get_transmission_mask(optics, params, static_optics=False):
 
     return optics.calc_mask(optics.wf_npixels, optics.diameter)
 
-    
+
+def remove_hole_ptt(opd, mask, corners, size=180):
+    """
+    Subtract each hole's own least-squares piston / tip / tilt from a dense OPD,
+    fitted over that hole's aperture (mask > 0.5). A pupil-wide basis (the
+    eigenbasis) has no per-hole piston/tip/tilt coefficients to zero, so the
+    "flat" OPD is made this way instead.
+    """
+    opd, mask = onp.asarray(opd), onp.asarray(mask)
+    flat = opd.copy()
+    yy, xx = onp.mgrid[:size, :size]
+    for j, i in onp.asarray(corners):
+        win = (slice(i, i + size), slice(j, j + size))
+        m = mask[win] > 0.5
+        P = onp.stack([onp.ones(m.sum()), xx[m], yy[m]], 1)
+        coef = onp.linalg.lstsq(P, opd[win][m], rcond=None)[0]
+        flat[win] -= (coef[0] + coef[1] * xx + coef[2] * yy) * m
+    return flat
+
+
 def summarise_fn(
     result,
     save_path,
@@ -691,13 +710,19 @@ def summarise_fn(
             fig, ax = plt.subplots(1, 2, figsize=(10, 3.5))
     
             full_abb = pupil_mask.set("abb_coeffs", coeffs).calc_aberrations()
-            flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
-            
+
             if static_optics:
                 mask = optics.transmission
             else:
                 mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
-        
+
+            # Per-hole bases: zero each hole's piston/tip/tilt modes. Pupil-wide
+            # eigenbasis: fit and remove each hole's piston/tip/tilt instead.
+            if coeffs.ndim == 2:
+                flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
+            else:
+                flat_abb = remove_hole_ptt(full_abb, mask, pupil_mask.corners)
+
             full_abb = np.where(mask < 1.0, np.nan, 1e9 * full_abb)
             flat_abb = np.where(mask < 1.0, np.nan, 1e9 * flat_abb)
         
