@@ -375,6 +375,7 @@ def summarise_fn(
     n_batch=None,
     optimisers={},
     amigo_files_path="",
+    history_stride=1,
     ):
 
     inferno_r = get_cmap("inferno_r")
@@ -508,7 +509,9 @@ def summarise_fn(
         plt.tight_layout()
         if save_flag:
             plt.savefig(os.path.join(save_path, "mean_losses.png"), dpi=200)
-        plt.show()
+            plt.close()
+        else:
+            plt.show()
         
         ###
         
@@ -529,7 +532,9 @@ def summarise_fn(
         plt.tight_layout()
         if save_flag:
             plt.savefig(os.path.join(save_path, "all_losses.png"), dpi=200)
-        plt.show()
+            plt.close()
+        else:
+            plt.show()
     
     else:
         # Plot every batch plus the mean (what tqdm reports), not just the first batch
@@ -559,7 +564,7 @@ def summarise_fn(
         
 
     ################### PLOTTING HISTORY AND SUMMARISE FIT ###################
-    amigo.plotting.plot(result.history, save_path=save_path)
+    amigo.plotting.plot(result.history, save_path=save_path, stride=history_stride)
     
     exposures_lists = []
     exp_types = []
@@ -632,7 +637,9 @@ def summarise_fn(
     fig.tight_layout()
     if save_flag:
         plt.savefig(os.path.join(save_path, "flats.png"), dpi=300)
-    plt.show()
+        plt.close()
+    else:
+        plt.show()
     
     
     ##################### DARKS #####################
@@ -659,7 +666,9 @@ def summarise_fn(
     fig.tight_layout()
     if save_flag:
         plt.savefig(os.path.join(save_path, "darks.png"), dpi=300)
-    plt.show()
+        plt.close()
+    else:
+        plt.show()
 
     
     ################### WAVEFRONT ###################
@@ -853,6 +862,15 @@ def summarise_fn(
                 else:
                     plt.show()
 
+    # Defensive: every figure above should already be closed when save_flag, but
+    # this got missed for 4 of them (mean_losses/all_losses/flats/darks -- all now
+    # fixed) without ever erroring, just silently leaking. Belt and braces against
+    # the same mistake creeping back in on a future edit -- summarise_fn runs once
+    # per checkpoint on long runs, so a missed close() compounds badly. No-op if
+    # save_flag is False (plt.show() in a real notebook keeps the figure around on
+    # purpose, so don't close those).
+    if save_flag:
+        plt.close("all")
 
 
 nn_setup_options = [
