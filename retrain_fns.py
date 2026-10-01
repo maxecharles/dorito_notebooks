@@ -145,6 +145,39 @@ def temp_decay(t, T0, k, TF=0):
     return (T0 - TF) * np.exp(-k * t) + TF
 
 
+def tempered_adam(lr, updates_per_epoch, warmup_epochs, T0=0.0, TF=0.0, decay=0.0, seed=0):
+    """
+    Adam with the retrain warm-up and temperature schedules built in.
+
+    Noise is added after Adam's normalisation, so the temperature is in units of Adam's
+    per-weight step (~1), not raw gradient units, and it can't be divided back out the
+    way gradient-level noise is. Schedules are in epochs: count / updates_per_epoch.
+    """
+    import optax
+
+    def epoch(count):
+        return count / updates_per_epoch
+
+    def lr_fn(count):
+        return lr * cosine_warmup(epoch(count), 0.0, warmup_epochs)
+
+    def add_noise():
+        def init_fn(params):
+            return {"count": np.zeros([], np.int32), "key": jr.PRNGKey(seed)}
+
+        def update_fn(updates, state, params=None):
+            key, subkey = jr.split(state["key"])
+            leaves, treedef = jtu.flatten(updates)
+            keys = jr.split(subkey, len(leaves))
+            T = temp_decay(epoch(state["count"]), T0, decay, TF)
+            leaves = [u + T * jr.normal(k, u.shape, u.dtype) for u, k in zip(leaves, keys)]
+            return jtu.unflatten(treedef, leaves), {"count": state["count"] + 1, "key": key}
+
+        return optax.GradientTransformation(init_fn, update_fn)
+
+    return optax.chain(optax.scale_by_adam(), add_noise(), optax.scale_by_learning_rate(lr_fn))
+
+
 def get_warmup(args):
     return cosine_warmup(args["t"], args["t0"], args["n_max"])
 
@@ -463,9 +496,22 @@ def summarise_fn(
     try:
         best_params = result.best_state.params
         if "nn_weights" in best_params.keys():
-            best_params["nn_weights"] = np.array(
-                result.best_batch["nn_weights"]
-            ).mean(0)
+            # result.best_batch["nn_weights"] is already averaged over the winning epoch's
+            # own batches (ValBatchedTrainer does this at the point best_val updates, same
+            # convention as final_state's `history[-n_batch:].mean(0)` below -- falling back
+            # to a plain snapshot if that averaging itself ever fails), so it's already the
+            # correct (8640,) vector -- no further reduction needed. This used to be
+            # `.mean(0)`'d again here, back when best_batch was still a single unaveraged
+            # snapshot; that averaged over the 8640 weights themselves instead of over
+            # batches, collapsing it to a 0-d scalar and crashing any run that loads
+            # best_state.npy (Trainer.grads_fn's lax_slice needs a 1-d vector).
+            best_params["nn_weights"] = np.array(result.best_batch["nn_weights"])
+        # best_state only holds the optimised params, so anything frozen for this run
+        # (e.g. nn_weights under RETRAIN_FREEZE_NN) is filled in from the model; without
+        # this, a run started from this best_state would silently fall back to defaults.
+        for key in params_to_save:
+            if key not in best_params.keys():
+                best_params[key] = result.model.get(key)
         best_params["transmission"] = get_transmission_mask(
             optics, best_params, static_optics=static_optics
         )
@@ -479,9 +525,16 @@ def summarise_fn(
 
     final_params = {key: result.model.get(key) for key in params_to_save}
     if "nn_weights" in result.state.params.keys():
+        # Normally n_batch (one batch_history entry per cal/flat batch). Under
+        # amigo-multigpu's RETRAIN_MULTI_GPU=1 + val_flag=True path, nn_weights
+        # instead gets one accumulated-gradient update per EPOCH, so
+        # batch_history only has 1 entry/epoch there -- meta_data says which,
+        # falling back to n_batch for results without it (plain Trainer, or an
+        # older ValBatchedTrainer that predates this field).
+        n_hist = result.meta_data.get("batch_updates_per_epoch", n_batch)
         final_params["nn_weights"] = np.array(
-            result.history["nn_weights"]  # all batches of final epoch
-        )[-n_batch:].mean(0)
+            result.history["nn_weights"]  # all batches (or the single update) of the final epoch
+        )[-n_hist:].mean(0)
     final_params["transmission"] = get_transmission_mask(
         optics, final_params, static_optics=static_optics
     )
