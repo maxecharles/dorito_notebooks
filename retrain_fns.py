@@ -407,6 +407,123 @@ def remove_hole_ptt(opd, mask, corners, size=180):
     return flat
 
 
+# How well each exposure is fitted where the PSF is bright and where it is faint. The all-pixel
+# sigma of the z-scores (the statistic in the AMIGO paper's figures) is dominated by the
+# background and cannot see the PSF core (2026-10-09). So the per-pixel mean z-score (the mean over
+# slopes of (data - model) / sigma: the middle panel of summarise_fit and of the paper's Figs 11, 20
+# and 21) is summarised as an rms in bands of pixels ranked by their flux, each against what a
+# perfect model would leave, and for CAL 4481 against the paper's own maps (read back from its
+# figures by paper_residual_maps.py, the five dithers = keys ending _1 ... _5).
+PAPER_RESIDUAL_MAPS = "/fred/oz440/max/outputs/degeneracy/paper_residual_maps.npz"
+PAPER_TAGS = {"04481_001_04_03_": "F380M", "04481_001_06_03_": "F430M", "04481_001_02_03_": "F480M"}
+RESIDUAL_BANDS = (("core50", 0, 50), ("core300", 0, 300), ("mid", 300, 1000), ("bg", 3000, None))
+
+
+def mean_z_noise(variance):
+    """The rms that a perfect model would leave in the mean over slopes of z, per pixel:
+    neighbouring slopes share a read (covariance -r), photon noise is independent. r, the read
+    variance, is taken from the faintest pixels, where variance = 2 r."""
+    n = variance.shape[0]
+    faint = onp.nanmedian(variance, axis=0)
+    r = 0.5 * onp.nanmedian(faint[faint <= onp.nanpercentile(faint, 20)])
+    s = onp.sqrt(variance)
+    cross = (1 / (s[:-1] * s[1:])).sum(0)
+    return onp.sqrt(onp.clip(n - 2 * r * cross, 1e-12, None)) / n
+
+
+def residual_row(key, z, data, variance, paper_maps=None):
+    """One exposure's numbers from its z-scores, data and variance (slopes, 80, 80); z is NaN
+    wherever the likelihood is not evaluated. Returns the row and the mean-z map."""
+    z = onp.asarray(z, float)
+    ok = onp.isfinite(z).all(0)
+    mz = onp.where(ok, onp.nanmean(onp.where(ok[None], z, 0.0), 0), onp.nan)
+    paper = None
+    for tag, filt in PAPER_TAGS.items():
+        if paper_maps is not None and key.startswith(tag) and key[len(tag):].isdigit():
+            paper = paper_maps[f"{filt}_mean_z"][int(key[len(tag):]) - 1]
+    use = ok & (onp.isfinite(paper) if paper is not None else True)
+    flux = onp.where(use, onp.nansum(onp.asarray(data, float), 0), -onp.inf).ravel()
+    order = onp.argsort(-flux)[: int(use.sum())]  # brightest first
+    noise = mean_z_noise(onp.asarray(variance, float))
+    rms = lambda x: float(onp.sqrt(onp.nanmean(x**2)))
+    row = dict(key=key, n_pix=int(use.sum()), sigma=float(onp.nanstd(z[:, ok])),
+               loss=float(onp.mean(onp.sum(z[:, ok] ** 2, 0))))
+    for band, a, b in RESIDUAL_BANDS:
+        idx = order[a:b]
+        row[band] = rms(mz.ravel()[idx])
+        row[f"noise_{band}"] = rms(noise.ravel()[idx])
+        row[f"paper_{band}"] = rms(paper.ravel()[idx]) if paper is not None else onp.nan
+    return row, mz
+
+
+def residual_stats(model, exposures, save_path=None, name="residual_stats", title=""):
+    """Residual statistics of (kind, exposure) pairs at `model`: printed, and saved as
+    <name>.npz (rows and mean-z maps) and <name>.txt in save_path."""
+    try:
+        paper_maps = dict(onp.load(PAPER_RESIDUAL_MAPS, allow_pickle=True))
+    except Exception as e:
+        print(f"No paper residual maps ({e}); comparing without them")
+        paper_maps = None
+    rows, maps = [], {}
+    for kind, exp in exposures:
+        slopes = onp.asarray(exp(model), float)
+        data, variance = onp.asarray(exp.slopes, float), onp.asarray(exp.variance, float)
+        support = onp.zeros(data.shape[-2:], bool)
+        support[tuple(onp.asarray(s) for s in exp.support)] = True
+        z = onp.where(support[None], (data - slopes) / onp.sqrt(variance), onp.nan)
+        row, mz = residual_row(exp.key, z, data, variance, paper_maps)
+        row.update(kind=kind, program=exp.program, filter=exp.filter, ngroups=int(exp.ngroups))
+        rows.append(row)
+        maps[exp.key] = mz.astype(onp.float32)
+    lines = format_residual_rows(rows, title)
+    print("\n".join(lines))
+    if save_path is not None:
+        onp.savez(os.path.join(save_path, f"{name}.npz"), rows=onp.array(rows, dtype=object), **maps)
+        with open(os.path.join(save_path, f"{name}.txt"), "w") as f:
+            f.write("\n".join(lines) + "\n")
+    return rows
+
+
+def format_residual_rows(rows, title=""):
+    f3 = lambda x: "  -  " if not onp.isfinite(x) else f"{x:5.3f}"
+    lines = [f"Residual statistics{': ' + title if title else ''}. rms of the per-pixel mean z-score (mean over slopes of"
+             " (data - model) / sigma) over the pixels ranked by flux: brightest 50 and 300, 300-1000, faintest half (bg);"
+             " 'noise' is what a perfect model would leave; 'paper' is the AMIGO paper's fit of CAL 4481. sigma is the"
+             " all-pixel z-score sigma of the paper's figures, loss the training loss.",
+             f"{'kind':4s} {'key':20s} {'filter':6s} {'loss':>7s} {'sigma':>5s} | {'core50':>6s} {'core300':>7s} {'mid':>5s} {'bg':>5s}"
+             f" | noise {'core300':>7s} {'bg':>5s} | paper {'core300':>7s} {'bg':>5s}"]
+    for r in rows:
+        lines.append(f"{r['kind']:4s} {r['key']:20s} {r['filter']:6s} {r['loss']:7.3f} {r['sigma']:5.3f} | {f3(r['core50']):>6s}"
+                     f" {f3(r['core300']):>7s} {f3(r['mid']):>5s} {f3(r['bg']):>5s} | {'':5s} {f3(r['noise_core300']):>7s}"
+                     f" {f3(r['noise_bg']):>5s} | {'':5s} {f3(r['paper_core300']):>7s} {f3(r['paper_bg']):>5s}")
+    lines.append("Means per program and filter (core300 and bg; ratio to the noise floor in brackets):")
+    for prog in sorted({r["program"] for r in rows}):
+        for filt in ("F380M", "F430M", "F480M"):
+            sel = [r for r in rows if r["program"] == prog and r["filter"] == filt]
+            if not sel:
+                continue
+            m = lambda k: float(onp.mean([r[k] for r in sel]))
+            text = (f"  {prog} {filt} ({len(sel):2d}): core300 {m('core300'):.3f} ({m('core300') / m('noise_core300'):.1f}x noise),"
+                    f" bg {m('bg'):.3f} ({m('bg') / m('noise_bg'):.1f}x)")
+            if onp.isfinite(m("paper_core300")):
+                text += (f"; paper core300 {m('paper_core300'):.3f}, bg {m('paper_bg'):.3f};"
+                         f" ours/paper core300 {m('core300') / m('paper_core300'):.2f}, bg {m('bg') / m('paper_bg'):.2f}")
+            lines.append(text)
+    return lines
+
+
+def with_carried(params, carry_params):
+    """params plus whatever the run does not use but a later run may need (e.g. the binary's
+    parameters in a run without the binary): missing parameters, and missing keys of dict ones."""
+    params = dict(params)
+    for key, value in carry_params.items():
+        if key not in params:
+            params[key] = value
+        elif isinstance(value, dict) and isinstance(params[key], dict):
+            params[key] = {**value, **params[key]}
+    return params
+
+
 def summarise_fn(
     result,
     save_path,
@@ -428,6 +545,7 @@ def summarise_fn(
     optimisers={},
     amigo_files_path="",
     history_stride=1,
+    carry_params={},
     ):
 
     inferno_r = get_cmap("inferno_r")
@@ -456,7 +574,13 @@ def summarise_fn(
     
     if binary_flag:
         params_to_save += ["pas", "separations", "contrasts"]
-    
+
+    # only there when a run fits them (retrain.py's RETRAIN_ROTATION_KEY / RETRAIN_SIGMA_KEY)
+    if "rotations" in result.model.params.keys():
+        params_to_save += ["rotations"]
+    if "sigmas" in result.model.params.keys():
+        params_to_save += ["sigmas"]
+
     ################### SAVING RESULTS ###################
     if val_flag:
         # Unwrapping into cal, val, and flat
@@ -515,6 +639,7 @@ def summarise_fn(
         best_params["transmission"] = get_transmission_mask(
             optics, best_params, static_optics=static_optics
         )
+        best_params = with_carried(best_params, carry_params)
         np.save(
             os.path.join(out_dir, f"{prefix}best_state.npy"),
             best_params,
@@ -538,6 +663,7 @@ def summarise_fn(
     final_params["transmission"] = get_transmission_mask(
         optics, final_params, static_optics=static_optics
     )
+    final_params = with_carried(final_params, carry_params)
     np.save(
         os.path.join(out_dir, f"{prefix}final_state.npy"),
         final_params,
@@ -636,6 +762,24 @@ def summarise_fn(
         
 
     ################### PLOTTING HISTORY AND SUMMARISE FIT ###################
+    # The same histories as numbers, for everything but the network and the pixel maps:
+    # {param: array or {key: array}}, first axis = one entry every `history_stride` epochs.
+    # Lets how parameters move together be looked at afterwards (degeneracy_analysis.py).
+    try:
+        big = ("nn_weights", "FF", "non_linearity", "dark_current")
+        param_history = {
+            key: jtu.map(lambda x: onp.asarray(x), val, is_leaf=lambda x: isinstance(x, list))
+            for key, val in result.history.params.items()
+            if key not in big
+        }
+        onp.save(
+            os.path.join(out_dir, f"{prefix}param_history.npy"),
+            {"stride": history_stride, "params": param_history},
+            allow_pickle=True,
+        )
+    except Exception as e:
+        print(f"Saving parameter histories failed: {e}")
+
     amigo.plotting.plot(result.history, save_path=save_path, stride=history_stride)
     
     exposures_lists = []
@@ -666,6 +810,18 @@ def summarise_fn(
         for exp in exps:
             exp.print_summary()
             amigo.plotting.summarise_fit(result.model, exp, save_path=this_save_path)
+
+    # core / background residual statistics of every calibrator and validator (residual_stats)
+    try:
+        residual_stats(
+            result.model,
+            ([("cal", e) for e in cal_exposures] if (cal_flag or binary_flag) else [])
+            + ([("val", e) for e in val_exposures] if val_flag else []),
+            save_path=save_path,
+            title=os.path.basename(os.path.normpath(save_path)) if save_path else "",
+        )
+    except Exception as e:
+        print(f"Residual statistics failed: {e}")
 
     ################### PIXEL SENSITIVITY AND NON-LINEARITY ###################
     
