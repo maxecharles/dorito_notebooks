@@ -456,9 +456,10 @@ def residual_row(key, z, data, variance, paper_maps=None):
     return row, mz
 
 
-def residual_stats(model, exposures, save_path=None, name="residual_stats", title=""):
-    """Residual statistics of (kind, exposure) pairs at `model`: printed, and saved as
-    <name>.npz (rows and mean-z maps) and <name>.txt in save_path."""
+def residual_stats(model, exposures, save_path=None, name="residual_stats", title="", epoch=None):
+    """Residual statistics of (kind, exposure) pairs at `model`: printed, and saved with figures
+    in <save_path>/paper_comparison/ as <name>.npz (rows, mean-z maps, flux maps, epoch) and
+    <name>.txt (see paper_comparison_figures)."""
     try:
         paper_maps = dict(onp.load(PAPER_RESIDUAL_MAPS, allow_pickle=True))
     except Exception as e:
@@ -478,10 +479,170 @@ def residual_stats(model, exposures, save_path=None, name="residual_stats", titl
     lines = format_residual_rows(rows, title)
     print("\n".join(lines))
     if save_path is not None:
-        onp.savez(os.path.join(save_path, f"{name}.npz"), rows=onp.array(rows, dtype=object), **maps)
-        with open(os.path.join(save_path, f"{name}.txt"), "w") as f:
+        out_dir = os.path.join(save_path, "paper_comparison")
+        os.makedirs(out_dir, exist_ok=True)
+        onp.savez(os.path.join(out_dir, f"{name}.npz"), rows=onp.array(rows, dtype=object),
+                  epoch=onp.array(-1 if epoch is None else epoch), **maps)
+        with open(os.path.join(out_dir, f"{name}.txt"), "w") as f:
             f.write("\n".join(lines) + "\n")
+        try:
+            paper_comparison_figures(os.path.join(out_dir, f"{name}.npz"), title=title)
+        except Exception as e:
+            print(f"Paper-comparison figures failed: {e}")
     return rows
+
+
+# Figures: the categorical slots 1-3 of the dataviz reference palette (validated all-pairs for
+# colour-vision deficiency in light mode), seismic for the maps (as amigo's own summaries), neutral inks.
+_OURS, _PAPER, _BG = "#2a78d6", "#eb6834", "#1baf7a"
+_INK, _INK2, _GRID, _SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
+_BANDS = [("core50", "brightest 50"), ("core300", "brightest 300"), ("mid", "300-1000"), ("bg", "faintest half")]
+
+
+def _style(ax):
+    ax.set_facecolor(_SURFACE)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(_INK2)
+    ax.tick_params(colors=_INK2, labelsize=8)
+    ax.grid(True, color=_GRID, lw=0.8, zorder=0)
+    ax.set_axisbelow(True)
+
+
+def _paper_rows(rows):
+    return {f: [r for r in rows if onp.isfinite(r["paper_core300"]) and r["filter"] == f] for f in ("F380M", "F430M", "F480M")}
+
+
+def paper_comparison_figures(npz_path, title=""):
+    """Figures for one residual_stats.npz, next to it (prefixed like it, e.g. init_), and the run's
+    trajectory over all its summaries in <run>/paper_comparison/trajectory_4481.png:
+      bands_4481.png    CAL 4481's systematic residual in each brightness band, ours vs the paper
+      maps_4481_dither<k>.png  the mean z-score maps of dither k (all five): ours, the paper's, ours - paper
+      programs.png      every program and filter against its noise floor (core and background)"""
+    d = onp.load(npz_path, allow_pickle=True)
+    rows = list(d["rows"])
+    out_dir = os.path.dirname(npz_path)
+    prefix = os.path.basename(npz_path)[: -len("residual_stats.npz")]
+    by_filter = _paper_rows(rows)
+    has_paper = any(by_filter.values())
+
+    if has_paper:
+        # 1. bands
+        fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), sharey=True, facecolor=_SURFACE)
+        xs = onp.arange(len(_BANDS))
+        for ax, (f, sel) in zip(axes, by_filter.items()):
+            _style(ax)
+            for key, colour, label, marker in (("", _OURS, "ours", "o"), ("paper_", _PAPER, "AMIGO paper", "D")):
+                vals = onp.array([[r[f"{key}{b}"] for b, _ in _BANDS] for r in sel])
+                ax.errorbar(xs, vals.mean(0), yerr=[vals.mean(0) - vals.min(0), vals.max(0) - vals.mean(0)], color=colour,
+                            marker=marker, ms=6, lw=2, elinewidth=1, capsize=3, label=label, zorder=3)
+            noise = onp.array([[r[f"noise_{b}"] for b, _ in _BANDS] for r in sel]).mean(0)
+            ax.plot(xs, noise, color=_INK2, ls="--", lw=1.5, label="noise only", zorder=2)
+            ratio = onp.mean([r["core300"] for r in sel]) / onp.mean([r["paper_core300"] for r in sel])
+            ax.set_title(f"{f}: brightest 300 at {ratio:.2f}x the paper", color=_INK, fontsize=10)
+            ax.set_xticks(xs, [lab for _, lab in _BANDS])
+            ax.set_yscale("log")
+        axes[0].set_ylabel("rms of the per-pixel mean z-score", color=_INK2, fontsize=9)
+        axes[0].legend(frameon=False, fontsize=8, labelcolor=_INK)
+        fig.suptitle(f"{title}\nCAL 4481 systematic residual by brightness band (mean of 5 dithers, bars: range)",
+                     color=_INK, fontsize=11)
+        fig.tight_layout()
+        fig.savefig(os.path.join(out_dir, f"{prefix}bands_4481.png"), dpi=150, facecolor=_SURFACE)
+        plt.close(fig)
+
+        # 2. maps, one figure per dither
+        paper = dict(onp.load(PAPER_RESIDUAL_MAPS, allow_pickle=True))
+        cmap = plt.get_cmap("seismic")
+        for dither in range(5):
+            fig, axes = plt.subplots(3, 3, figsize=(10, 10), facecolor=_SURFACE)
+            for row_axes, (tag, f) in zip(axes, PAPER_TAGS.items()):
+                key = tag + str(dither + 1)
+                ours = onp.asarray(d[key], float)
+                theirs = onp.asarray(paper[f"{f}_mean_z"][dither], float)
+                panels = [(ours, "ours"), (theirs, "AMIGO paper"), (ours - theirs, "ours - paper")]
+                lim = onp.nanpercentile(onp.abs(onp.concatenate([ours.ravel(), theirs.ravel()])), 99.5)
+                r = [x for x in rows if x["key"] == key][0]
+                for ax, (img, label) in zip(row_axes, panels):
+                    im = ax.imshow(img, cmap=cmap, vmin=-lim, vmax=lim, origin="lower")
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    for side in ax.spines.values():
+                        side.set_color(_GRID)
+                    note = {"ours": f"brightest 300: {r['core300']:.2f}", "AMIGO paper": f"brightest 300: {r['paper_core300']:.2f}"}
+                    ax.set_title(f"{f} {label}" + (f"\n{note[label]}" if label in note else "\n "), color=_INK, fontsize=9)
+                cb = fig.colorbar(im, ax=list(row_axes), shrink=0.8, pad=0.02)
+                cb.ax.tick_params(colors=_INK2, labelsize=8)
+                cb.set_label("mean z-score", color=_INK2, fontsize=8)
+            fig.suptitle(f"{title}\nCAL 4481 mean z-score per pixel, dither {dither + 1} (red: data above the model)",
+                         color=_INK, fontsize=11)
+            fig.savefig(os.path.join(out_dir, f"{prefix}maps_4481_dither{dither + 1}.png"), dpi=150, facecolor=_SURFACE)
+            plt.close(fig)
+
+    # 3. every program against its noise floor
+    groups = sorted({(r["program"], r["filter"]) for r in rows})
+    fig, ax = plt.subplots(figsize=(max(6, 0.55 * len(groups) + 2), 4), facecolor=_SURFACE)
+    _style(ax)
+    xs = onp.arange(len(groups))
+    mean = lambda g, k: onp.mean([r[k] for r in rows if (r["program"], r["filter"]) == g])
+    ax.plot(xs, [mean(g, "core300") / mean(g, "noise_core300") for g in groups], "o", color=_OURS, ms=7, label="ours, brightest 300", zorder=3)
+    ax.plot(xs, [mean(g, "bg") / mean(g, "noise_bg") for g in groups], "s", color=_BG, ms=6, label="ours, faintest half", zorder=3)
+    if has_paper:
+        px = [i for i, g in enumerate(groups) if onp.isfinite(mean(g, "paper_core300"))]
+        ax.plot(px, [mean(groups[i], "paper_core300") / mean(groups[i], "noise_core300") for i in px], "D", color=_PAPER, ms=6,
+                label="AMIGO paper, brightest 300", zorder=3)
+    ax.axhline(1, color=_INK2, ls="--", lw=1.5, label="noise only")
+    ax.set_xticks(xs, [f"{p} {f}" for p, f in groups], rotation=60, ha="right")
+    ax.set_yscale("log")
+    ax.set_ylabel("rms of mean z-score / noise only", color=_INK2, fontsize=9)
+    ax.legend(frameon=False, fontsize=8, labelcolor=_INK, loc="upper left")
+    ax.set_title(f"{title}\nsystematic residual against the noise floor, mean over each program's exposures", color=_INK, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, f"{prefix}programs.png"), dpi=150, facecolor=_SURFACE)
+    plt.close(fig)
+
+    # 4. the run's trajectory
+    run_dir = os.path.dirname(out_dir)
+    if os.path.basename(run_dir).startswith("epoch_"):
+        run_dir = os.path.dirname(run_dir)
+    trajectory_figure(run_dir)
+
+
+def trajectory_figure(run_dir):
+    """CAL 4481's brightest-300 residual at every summary of a run, against the paper and the noise."""
+    from glob import glob
+
+    points = []
+    for path in glob(os.path.join(run_dir, "paper_comparison", "*residual_stats.npz")) + glob(
+            os.path.join(run_dir, "epoch_*", "paper_comparison", "*residual_stats.npz")):
+        d = onp.load(path, allow_pickle=True)
+        epoch = int(d["epoch"]) if "epoch" in d.files else -1
+        if epoch < 0:
+            parent = os.path.basename(os.path.dirname(os.path.dirname(path)))
+            epoch = 0 if os.path.basename(path).startswith("init_") else int(parent[6:]) if parent.startswith("epoch_") else -1
+        if epoch >= 0:
+            points.append((epoch, _paper_rows(list(d["rows"]))))
+    points.sort(key=lambda p: p[0])
+    if len(points) < 2 or not any(points[0][1].values()):
+        return
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.6), sharey=True, facecolor=_SURFACE)
+    for ax, f in zip(axes, ("F380M", "F430M", "F480M")):
+        _style(ax)
+        ep = [p[0] for p in points]
+        ax.plot(ep, [onp.mean([r["core300"] for r in p[1][f]]) for p in points], "o-", color=_OURS, ms=6, lw=2, label="ours")
+        ax.axhline(onp.mean([r["paper_core300"] for r in points[-1][1][f]]), color=_PAPER, lw=2, label="AMIGO paper")
+        ax.axhline(onp.mean([r["noise_core300"] for r in points[-1][1][f]]), color=_INK2, ls="--", lw=1.5, label="noise only")
+        ax.set_title(f, color=_INK, fontsize=10)
+        ax.set_xlabel("epoch", color=_INK2, fontsize=9)
+        ax.set_ylim(bottom=0)
+    axes[0].set_ylabel("rms of mean z-score, brightest 300", color=_INK2, fontsize=9)
+    axes[0].legend(frameon=False, fontsize=8, labelcolor=_INK)
+    fig.suptitle(f"{os.path.basename(os.path.normpath(run_dir))}: CAL 4481 PSF-core residual over the run (mean of 5 dithers)",
+                 color=_INK, fontsize=10)
+    fig.tight_layout()
+    os.makedirs(os.path.join(run_dir, "paper_comparison"), exist_ok=True)
+    fig.savefig(os.path.join(run_dir, "paper_comparison", "trajectory_4481.png"), dpi=150, facecolor=_SURFACE)
+    plt.close(fig)
 
 
 def format_residual_rows(rows, title=""):
@@ -580,6 +741,8 @@ def summarise_fn(
         params_to_save += ["rotations"]
     if "sigmas" in result.model.params.keys():
         params_to_save += ["sigmas"]
+    # hierarchical wavefronts (amigo hier-wf): the per-filter and per-visit low-order terms
+    params_to_save += [key for key in ("low_filter", "low_visit") if key in result.model.params.keys()]
 
     ################### SAVING RESULTS ###################
     if val_flag:
@@ -819,6 +982,7 @@ def summarise_fn(
             + ([("val", e) for e in val_exposures] if val_flag else []),
             save_path=save_path,
             title=os.path.basename(os.path.normpath(save_path)) if save_path else "",
+            epoch=n_epoch,
         )
     except Exception as e:
         print(f"Residual statistics failed: {e}")
@@ -906,7 +1070,18 @@ def summarise_fn(
     rms = lambda x: np.sqrt(np.nanmean(np.square(x)))
         
     if "aberrations" in optimisers.keys():
-        for key, coeffs in result.state.aberrations.items():
+        # Hierarchical wavefronts (amigo hier-wf): an exposure's wavefront is pieced together from the
+        # shared eigenmodes and its filter's and visit's low-order terms, so draw one per filter and
+        # visit, as the exposure itself builds it
+        if getattr(pupil_mask, "low_order_proj", None) is not None:
+            wavefronts = {}
+            for exp in list(cal_exposures) + list(val_exposures):
+                name = f"{exp.filter}_{exp.program}_{exp.observation}"
+                if name not in wavefronts:
+                    wavefronts[name] = exp.update_optics(result.model).pupil_mask.abb_coeffs
+        else:
+            wavefronts = result.state.aberrations
+        for key, coeffs in wavefronts.items():
     
             # trying to get the program and filter strings
             key_split = key.split("_")
