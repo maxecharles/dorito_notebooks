@@ -379,10 +379,10 @@ def get_transmission_mask(optics, params, static_optics=False):
         return optics.transmission
 
     pupil_mask = optics.pupil_mask
-    if "distortion" in params:
-        pupil_mask = pupil_mask.set("distortion", params["distortion"])
-    if "primary_beam" in params:
-        pupil_mask = pupil_mask.set("primary_beam", params["primary_beam"])
+    # retrain's aperture, or the pipeline-branch one (hole positions and per-hole warps)
+    for key in ("distortion", "primary_beam", "hole_positions", "hole_distortion"):
+        if key in params:
+            pupil_mask = pupil_mask.set(key, params[key])
     optics = optics.set("pupil_mask", pupil_mask)
 
     return optics.calc_mask(optics.wf_npixels, optics.diameter)
@@ -714,14 +714,15 @@ def summarise_fn(
     seismic = get_cmap("seismic")
 
     badpix_bool = badpix.astype(bool)
+    # amigo's pipeline-branch optics (Louis's aperture, the wavefront as an OPD component), see retrain.py
+    pipeline_optics = getattr(result.model.optics.pupil_mask, "opds", None) is not None
 
     params_to_save = [
         "fluxes",
         "positions",
         "aberrations",
         "nn_weights", 
-        "distortion",
-        "primary_beam",
+        *(["hole_positions", "hole_distortion"] if pipeline_optics else ["distortion", "primary_beam"]),
         "defocus",
         "sigma",
         "dark_current",
@@ -741,8 +742,12 @@ def summarise_fn(
         params_to_save += ["rotations"]
     if "sigmas" in result.model.params.keys():
         params_to_save += ["sigmas"]
+    if "one_on_fs" in result.model.params.keys():
+        params_to_save += ["one_on_fs"]
     # hierarchical wavefronts (amigo hier-wf): the per-filter and per-visit low-order terms
     params_to_save += [key for key in ("low_filter", "low_visit") if key in result.model.params.keys()]
+    # the base model's shared wavefront parts (retrain.py's RETRAIN_BASE_OPDS)
+    params_to_save += [key for key in ("fourier_opd", "filter_opd") if key in result.model.params.keys()]
 
     ################### SAVING RESULTS ###################
     if val_flag:
@@ -1081,6 +1086,12 @@ def summarise_fn(
                     wavefronts[name] = exp.update_optics(result.model).pupil_mask.abb_coeffs
         else:
             wavefronts = result.state.aberrations
+        # base-model wavefront parts: a key's wavefront also holds its Fourier and filter sets, so draw it
+        # as one of its exposures builds it
+        key_exposures = {}
+        if "fourier_opd" in result.model.params.keys():
+            for exp in list(cal_exposures) + list(val_exposures):
+                key_exposures.setdefault(exp.get_key("aberrations"), exp)
         for key, coeffs in wavefronts.items():
     
             # trying to get the program and filter strings
@@ -1093,7 +1104,11 @@ def summarise_fn(
             # plotting
             fig, ax = plt.subplots(1, 2, figsize=(10, 3.5))
     
-            full_abb = pupil_mask.set("abb_coeffs", coeffs).calc_aberrations()
+            abb_name = "aberrations" if pipeline_optics else "abb_coeffs"
+            if key in key_exposures:
+                full_abb = key_exposures[key].update_optics(result.model).pupil_mask.calc_aberrations()
+            else:
+                full_abb = pupil_mask.set(abb_name, coeffs).calc_aberrations()
 
             if static_optics:
                 mask = optics.transmission
@@ -1103,7 +1118,7 @@ def summarise_fn(
             # Per-hole bases: zero each hole's piston/tip/tilt modes. Pupil-wide
             # eigenbasis: fit and remove each hole's piston/tip/tilt instead.
             if coeffs.ndim == 2:
-                flat_abb = pupil_mask.set("abb_coeffs", coeffs.at[:, :3].set(0)).calc_aberrations()
+                flat_abb = pupil_mask.set(abb_name, coeffs.at[:, :3].set(0)).calc_aberrations()
             else:
                 flat_abb = remove_hole_ptt(full_abb, mask, pupil_mask.corners)
 
@@ -1140,7 +1155,13 @@ def summarise_fn(
     
     ################### PUPIL AND BEAM DISTORTIONS ###################
 
-    if not static_optics:
+    if pipeline_optics:
+        null_pupil_mask = pupil_mask.multiply("hole_positions", 0.0).multiply("hole_distortion", 0.0)
+        null_mask = null_pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+
+        mask = pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
+
+    elif not static_optics:
         null_pupil_mask = pupil_mask.multiply("primary_beam", 0.0).multiply("distortion", 0.0)
         null_mask = null_pupil_mask.calc_mask(optics.wf_npixels, optics.diameter)
         
@@ -1295,4 +1316,12 @@ nn_setup_options = [
     {"hidden_width": 10, "n_hidden_layers": 2},
     {"hidden_width": 8, "n_hidden_layers": 2},
     {"hidden_width": 6, "n_hidden_layers": 2},
+    # wider than the paper's (capacity tests, grow_network.py starts them from a trained 16 x 3)
+    {"hidden_width": 32, "n_hidden_layers": 3},
+    {"hidden_width": 24, "n_hidden_layers": 3},
+    {"hidden_width": 48, "n_hidden_layers": 3},
+    {"hidden_width": 64, "n_hidden_layers": 3},
+    {"hidden_width": 32, "n_hidden_layers": 4},
+    {"hidden_width": 96, "n_hidden_layers": 3},
+    {"hidden_width": 128, "n_hidden_layers": 3},
 ]
