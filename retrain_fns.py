@@ -720,7 +720,8 @@ def summarise_fn(
     params_to_save = [
         "fluxes",
         "positions",
-        "aberrations",
+        # the piston/tip/tilt: "ptt_coeffs" with the base-model parts, "aberrations" with the other bases
+        *[key for key in ("ptt_coeffs", "aberrations") if key in result.model.params.keys()],
         "nn_weights", 
         *(["hole_positions", "hole_distortion"] if pipeline_optics else ["distortion", "primary_beam"]),
         "defocus",
@@ -747,7 +748,7 @@ def summarise_fn(
     # hierarchical wavefronts (amigo hier-wf): the per-filter and per-visit low-order terms
     params_to_save += [key for key in ("low_filter", "low_visit") if key in result.model.params.keys()]
     # the base model's shared wavefront parts (retrain.py's RETRAIN_BASE_OPDS)
-    params_to_save += [key for key in ("fourier_opd", "filter_opd") if key in result.model.params.keys()]
+    params_to_save += [key for key in ("fourier_coeffs", "zernike_coeffs") if key in result.model.params.keys()]
 
     ################### SAVING RESULTS ###################
     if val_flag:
@@ -1074,7 +1075,9 @@ def summarise_fn(
     
     rms = lambda x: np.sqrt(np.nanmean(np.square(x)))
         
-    if "aberrations" in optimisers.keys():
+    # the piston/tip/tilt parameter's name: "ptt_coeffs" with the base-model parts, "aberrations" with the other bases
+    ptt = "ptt_coeffs" if "ptt_coeffs" in optimisers.keys() else "aberrations"
+    if ptt in optimisers.keys():
         # Hierarchical wavefronts (amigo hier-wf): an exposure's wavefront is pieced together from the
         # shared eigenmodes and its filter's and visit's low-order terms, so draw one per filter and
         # visit, as the exposure itself builds it
@@ -1085,13 +1088,13 @@ def summarise_fn(
                 if name not in wavefronts:
                     wavefronts[name] = exp.update_optics(result.model).pupil_mask.abb_coeffs
         else:
-            wavefronts = result.state.aberrations
+            wavefronts = getattr(result.state, ptt)
         # base-model wavefront parts: a key's wavefront also holds its Fourier and filter sets, so draw it
         # as one of its exposures builds it
         key_exposures = {}
-        if "fourier_opd" in result.model.params.keys():
+        if "fourier_coeffs" in result.model.params.keys():
             for exp in list(cal_exposures) + list(val_exposures):
-                key_exposures.setdefault(exp.get_key("aberrations"), exp)
+                key_exposures.setdefault(exp.get_key(ptt), exp)
         for key, coeffs in wavefronts.items():
     
             # trying to get the program and filter strings
@@ -1104,7 +1107,7 @@ def summarise_fn(
             # plotting
             fig, ax = plt.subplots(1, 2, figsize=(10, 3.5))
     
-            abb_name = "aberrations" if pipeline_optics else "abb_coeffs"
+            abb_name = ptt if pipeline_optics else "abb_coeffs"
             if key in key_exposures:
                 full_abb = key_exposures[key].update_optics(result.model).pupil_mask.calc_aberrations()
             else:
