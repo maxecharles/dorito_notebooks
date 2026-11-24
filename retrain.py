@@ -331,7 +331,8 @@ def migrate_wf_names(state):
     return state
 
 
-best_state = migrate_wf_names(best_state)
+# every value as a jax array (with its own dtype), however the state was saved (amigo_training's are plain numpy)
+best_state = migrate_wf_names(jax.tree.map(np.asarray, best_state))
 
 # RETRAIN_AB_STATE takes only the aberrations from another state file (e.g. the same
 # wavefront projected onto a different basis by project_aberrations.py), so a basis
