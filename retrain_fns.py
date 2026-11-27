@@ -745,6 +745,8 @@ def summarise_fn(
         params_to_save += ["sigmas"]
     if "one_on_fs" in result.model.params.keys():
         params_to_save += ["one_on_fs"]
+    # the primary dither positions' focus and rotation constants (the notebook's dither_flag)
+    params_to_save += [key for key in ("dither_rotation", "dither_defocus") if key in optimisers]
     # hierarchical wavefronts (amigo hier-wf): the per-filter and per-visit low-order terms
     params_to_save += [key for key in ("low_filter", "low_visit") if key in result.model.params.keys()]
     # the base model's shared wavefront parts (retrain.py's RETRAIN_BASE_OPDS)
